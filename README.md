@@ -40,7 +40,7 @@ unplug, switch between cable and dongle, or turn the controller off, it reconnec
 |-------------|--------------------|
 | Sticks, triggers, A B X Y, LB RB, L3 R3, D-pad | Same Xbox buttons and axes |
 | Select, Start, Home | Back (View), Start (Menu), Guide |
-| M1 / M2 / M3 / M4 | Paddles: upper left / upper right / lower left / lower right |
+| M1 / M2 / M3 / M4 | Paddles P1 / P2 / P3 / P4 (as Steam names them) |
 | C, Z, LM, RM, FN | Extra buttons 1-5 (bindable in Steam and some games) |
 | Turbo | Toggles gyro aiming (not sent to games) |
 

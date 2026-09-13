@@ -25,6 +25,11 @@ class MappingTests(unittest.TestCase):
         pressed = {code for (etype, code), value in values.items() if etype == e.EV_KEY and value}
         self.assertEqual(pressed, {e.BTN_A, e.BTN_DPAD_UP, e.BTN_GRIPL, e.BTN_GRIPR, e.BTN_GRIPL2, e.BTN_GRIPR2})
 
+    def test_back_buttons_are_steam_paddles_p1_to_p4(self):
+        # SDL (and so Steam) numbers the Elite paddles GRIPR, GRIPL, GRIPR2, GRIPL2 as paddle 1-4
+        self.assertEqual([virtual_pad.BUTTON_CODES[name] for name in ("M1", "M2", "M3", "M4")],
+                         [e.BTN_GRIPR, e.BTN_GRIPL, e.BTN_GRIPR2, e.BTN_GRIPL2])
+
     def test_axes(self):
         values = virtual_pad.evdev_values(state(sticks=(1234, 100, -32768, -32768), bytes={15: 200, 16: 3}))
         self.assertEqual(values[(e.EV_ABS, e.ABS_X)], 1234)

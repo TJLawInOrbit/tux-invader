@@ -23,8 +23,9 @@ BUTTON_CODES = {
     "LB": e.BTN_TL, "RB": e.BTN_TR, "L3": e.BTN_THUMBL, "R3": e.BTN_THUMBR,
     "SELECT": e.BTN_SELECT, "START": e.BTN_START, "HOME": e.BTN_MODE,
     "UP": e.BTN_DPAD_UP, "DOWN": e.BTN_DPAD_DOWN, "LEFT": e.BTN_DPAD_LEFT, "RIGHT": e.BTN_DPAD_RIGHT,
-    # Back buttons -> Elite paddles. SDL: GRIPL/GRIPR = upper left/right, GRIPL2/GRIPR2 = lower.
-    "M1": e.BTN_GRIPL, "M2": e.BTN_GRIPR, "M3": e.BTN_GRIPL2, "M4": e.BTN_GRIPR2,
+    # Back buttons -> Elite paddles P1-P4 as Steam shows them. SDL numbers the paddles
+    # BTN_GRIPR, BTN_GRIPL, BTN_GRIPR2, BTN_GRIPL2 as paddle 1-4 (checked in Steam's controller settings).
+    "M1": e.BTN_GRIPR, "M2": e.BTN_GRIPL, "M3": e.BTN_GRIPR2, "M4": e.BTN_GRIPL2,
     # No Xbox equivalent: extra joystick buttons that Steam and some games can still bind.
     "C": e.BTN_TRIGGER_HAPPY1, "Z": e.BTN_TRIGGER_HAPPY2,
     "LM": e.BTN_TRIGGER_HAPPY3, "RM": e.BTN_TRIGGER_HAPPY4,
