@@ -1,0 +1,7 @@
+# Flydigi Vader 5 Pro: let the logged-in user use this controller without root.
+
+# hidraw: inputs, rumble and test mode (vader5-viewer, vader5-pad)
+KERNEL=="hidraw*", ATTRS{idVendor}=="37d7", ATTRS{idProduct}=="2401", MODE="0660", TAG+="uaccess"
+
+# USB device: lets vader5-pad remove the basic "Generic X-Box pad" while it runs
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="37d7", ATTRS{idProduct}=="2401", MODE="0660", TAG+="uaccess"

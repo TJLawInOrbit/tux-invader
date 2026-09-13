@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Run vader5-pad automatically as a systemd user service (no root needed).
+set -euo pipefail
+
+UNIT=vader5-pad.service
+UNIT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT"
+PROJECT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+usage() {
+    cat <<EOF
+Usage: $0 <command>
+
+  install    start vader5-pad now and every time you log in
+  uninstall  stop it and remove the service
+  on         start it now (until you log out)
+  off        stop it now (it starts again at next login; the basic Xbox pad comes back)
+  restart    restart it, e.g. after updating the code
+  status     show whether it's running and its latest messages
+  logs       follow its messages live (Ctrl+C to stop following)
+EOF
+}
+
+write_unit() {
+    mkdir -p "$(dirname "$UNIT_FILE")"
+    # systemd treats % as a specifier, so double it in the path.
+    cat > "$UNIT_FILE" <<EOF
+[Unit]
+Description=Flydigi Vader 5 Pro as a virtual Xbox Elite controller
+
+[Service]
+ExecStart="${PROJECT_DIR//%/%%}/vader5-pad"
+Restart=on-failure
+RestartSec=3
+# 143/129 = stopped by SIGTERM/SIGHUP after cleaning up, which is a normal stop.
+SuccessExitStatus=143 129
+
+[Install]
+WantedBy=default.target
+EOF
+}
+
+case "${1:-}" in
+    install)
+        write_unit
+        systemctl --user daemon-reload
+        systemctl --user enable --now "$UNIT"
+        echo "Installed. vader5-pad is running and will start every time you log in."
+        ;;
+    uninstall)
+        systemctl --user disable --now "$UNIT" 2>/dev/null || true
+        rm -f "$UNIT_FILE"
+        systemctl --user daemon-reload
+        echo "Uninstalled. Run ./vader5-pad by hand if you want it again."
+        ;;
+    on) systemctl --user start "$UNIT" ;;
+    off) systemctl --user stop "$UNIT" ;;
+    restart) systemctl --user restart "$UNIT" ;;
+    status) systemctl --user status "$UNIT" --no-pager || true ;;
+    logs) journalctl --user -u "$UNIT" -f ;;
+    -h|--help) usage ;;
+    *) usage; exit 1 ;;
+esac

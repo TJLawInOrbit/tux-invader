@@ -1,0 +1,6 @@
+# Python caches
+__pycache__/
+*.pyc
+
+# Personal scratch folder
+working/
