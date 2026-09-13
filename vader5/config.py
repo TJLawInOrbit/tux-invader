@@ -38,8 +38,15 @@ STARTER = """\
 [gyro]
 # Button that turns gyro aiming on and off. It isn't sent to games.
 button = "TURBO"
+# Hold this button to pause gyro aiming while you bring your hands back to center, like lifting a
+# mouse off the desk. It isn't sent to games. "NONE" = no pause button. Turbo can't be held, so it
+# can't be used here.
+ratchet = "NONE"
 # Mouse movement per degree the controller turns. Higher is faster.
 sensitivity = 15.0
+# Extra speed for one direction on top of sensitivity: 1.25 = a quarter more, 0.8 = a fifth less.
+horizontal_scale = 1.0
+vertical_scale = 1.0
 invert_x = false
 invert_y = false
 # Rotation slower than this many degrees per second is scaled down to steady your hands. 0 = off.
@@ -83,8 +90,8 @@ class Settings:
         """The controller buttons games should see for these physical presses."""
         out = set()
         for name in pressed:
-            if name == self.gyro.button or name in self.key_remap:
-                continue  # the gyro toggle never reaches games; key remaps go to the keyboard instead
+            if name in (self.gyro.button, self.gyro.ratchet) or name in self.key_remap:
+                continue  # gyro buttons never reach games; key remaps go to the keyboard instead
             target = self.remap.get(name, name)
             if target != NONE:
                 out.add(target)
@@ -94,7 +101,7 @@ class Settings:
         """Keyboard keys and mouse buttons to hold down for these physical presses, in press order."""
         codes: list[int] = []
         for name in protocol.BUTTON_NAMES:  # a fixed order, so holding two remapped buttons is predictable
-            if name in pressed and name in self.key_remap and name != self.gyro.button:
+            if name in pressed and name in self.key_remap and name not in (self.gyro.button, self.gyro.ratchet):
                 codes += [code for code in self.key_remap[name].codes if code not in codes]
         return tuple(codes)
 
@@ -150,11 +157,21 @@ def parse(text: str) -> Settings:
     settings = Settings()
 
     gyro = _table(data, "gyro")
-    _check_keys(gyro, {"button", "sensitivity", "invert_x", "invert_y", "tightening"}, "[gyro]")
+    _check_keys(gyro, {"button", "ratchet", "sensitivity", "horizontal_scale", "vertical_scale",
+                       "invert_x", "invert_y", "tightening"}, "[gyro]")
     if "button" in gyro:
         settings.gyro.button = _button(gyro["button"], "[gyro] button", protocol.BUTTON_NAMES)
+    if "ratchet" in gyro:
+        settings.gyro.ratchet = _button(gyro["ratchet"], "[gyro] ratchet", (*protocol.BUTTON_NAMES, NONE))
+    if settings.gyro.ratchet == "TURBO":
+        raise ConfigError("[gyro] ratchet can't be TURBO: Turbo only sends a short pulse, so it can't be held")
+    if settings.gyro.ratchet != NONE and settings.gyro.ratchet == settings.gyro.button:
+        raise ConfigError("[gyro] ratchet and button can't be the same button")
     if "sensitivity" in gyro:
         settings.gyro.sensitivity = _number(gyro["sensitivity"], "[gyro] sensitivity", 0.0, 1000.0)
+    for key in ("horizontal_scale", "vertical_scale"):
+        if key in gyro:
+            setattr(settings.gyro, key, _number(gyro[key], f"[gyro] {key}", 0.0, 10.0))
     for key in ("invert_x", "invert_y"):
         if key in gyro:
             setattr(settings.gyro, key, _boolean(gyro[key], f"[gyro] {key}"))
@@ -287,7 +304,8 @@ def describe(settings: Settings) -> str:
     remaps = [f"{source} -> {target}" for source, target in settings.remap.items()]
     remaps += [f"{source} -> {combo.text}" for source, combo in settings.key_remap.items()]
     return "\n".join([
-        f"gyro: toggle {gyro.button}, sensitivity {gyro.sensitivity:g}, invert x {str(gyro.invert_x).lower()}, "
+        f"gyro: toggle {gyro.button}, ratchet {gyro.ratchet}, sensitivity {gyro.sensitivity:g} "
+        f"(horizontal x{gyro.horizontal_scale:g}, vertical x{gyro.vertical_scale:g}), invert x {str(gyro.invert_x).lower()}, "
         f"invert y {str(gyro.invert_y).lower()}, tightening {gyro.tightening_dps:g}",
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",
         "remap: " + (", ".join(sorted(remaps)) or "none"),

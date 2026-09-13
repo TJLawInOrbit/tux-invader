@@ -16,7 +16,10 @@ from . import protocol
 @dataclass
 class GyroSettings:
     button: str = "TURBO"  # toggles gyro aiming on/off and isn't passed to games; Turbo sends one short pulse per press
+    ratchet: str = "NONE"  # hold to pause gyro aiming while you bring your hands back to center; not passed to games
     sensitivity: float = 15.0  # mouse movement (counts) per degree the controller turns
+    horizontal_scale: float = 1.0  # extra multiplier for left/right movement
+    vertical_scale: float = 1.0  # extra multiplier for up/down movement
     invert_x: bool = False
     invert_y: bool = False
     tightening_dps: float = 1.0  # rotation slower than this (hand tremor) is scaled down
@@ -38,6 +41,7 @@ class GyroAim:
         self.enabled = False
         self.bias = [0.0, 0.0, 0.0]  # gyro reading (degrees/s) while the controller is still
         self._button_down = False
+        self._paused = False
         self._still_s = 0.0
         self._last_time: float | None = None
         self._remainder = [0.0, 0.0]  # sub-count movement carried to the next batch
@@ -63,16 +67,21 @@ class GyroAim:
                 toggled = True
             self._button_down = pressed
 
-            pitch, _roll, yaw = self._calibrated_rates(state, dt)
-            if self.enabled:
+            paused = self.settings.ratchet in state.buttons
+            if paused != self._paused:
+                self._remainder = [0.0, 0.0]  # don't carry part of a count across a pause
+                self._paused = paused
+
+            pitch, _roll, yaw = self._calibrated_rates(state, dt)  # keeps calibrating while paused
+            if self.enabled and not paused:
                 turn_x -= self._tighten(yaw) * dt
                 turn_y -= self._tighten(pitch) * dt
 
         if not self.enabled:
             return 0, 0, toggled
         s = self.settings
-        self._remainder[0] += turn_x * s.sensitivity * (-1 if s.invert_x else 1)
-        self._remainder[1] += turn_y * s.sensitivity * (-1 if s.invert_y else 1)
+        self._remainder[0] += turn_x * s.sensitivity * s.horizontal_scale * (-1 if s.invert_x else 1)
+        self._remainder[1] += turn_y * s.sensitivity * s.vertical_scale * (-1 if s.invert_y else 1)
         dx, dy = int(self._remainder[0]), int(self._remainder[1])
         self._remainder[0] -= dx
         self._remainder[1] -= dy

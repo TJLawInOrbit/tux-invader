@@ -25,6 +25,7 @@ class ParseTests(unittest.TestCase):
             sensitivity = 20
             invert_y = true
             tightening = 0
+            horizontal_scale = 1.25
             [sticks]
             left_deadzone = 0.1
             [remap]
@@ -37,6 +38,7 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(settings.gyro.invert_y)
         self.assertFalse(settings.gyro.invert_x)
         self.assertEqual(settings.gyro.tightening_dps, 0.0)
+        self.assertEqual((settings.gyro.horizontal_scale, settings.gyro.vertical_scale), (1.25, 1.0))
         self.assertEqual((settings.left_deadzone, settings.right_deadzone), (0.1, 0.0))
         self.assertEqual(settings.remap, {"M1": "A", "M2": config.NONE, "START": "HOME"})
 
@@ -53,6 +55,11 @@ class ParseTests(unittest.TestCase):
             '[remap]\nQ = "A"': "unknown button 'Q'",
             '[paddles]\nM1 = "A"': "unknown setting 'paddles'",
             "[gyro\nbutton = 1": "isn't valid TOML",
+            "[gyro]\nhorizontal_scale = 20": "horizontal_scale should be between 0 and 10",
+            '[gyro]\nvertical_scale = "more"': "vertical_scale should be a number",
+            '[gyro]\nratchet = "turbo"': "can't be TURBO",
+            '[gyro]\nbutton = "M3"\nratchet = "M3"': "can't be the same button",
+            '[gyro]\nratchet = "PADDLE"': "unknown button 'PADDLE'",
         }
         for text, message in cases.items():
             with self.subTest(text=text):
@@ -107,6 +114,13 @@ class ForGamesTests(unittest.TestCase):
         # fixed button order (M1 before M2), no repeats, and the gyro toggle (TURBO) never presses keys
         self.assertEqual(settings.keys_for(pressed), (e.KEY_SPACE, e.KEY_LEFTCTRL, e.KEY_C))
         self.assertEqual(settings.keys_for(frozenset({"B"})), ())
+
+    def test_ratchet_button_is_not_sent_anywhere(self):
+        settings = config.parse('[gyro]\nratchet = "m2"\n[remap]\nM2 = "key:space"')
+        self.assertEqual(settings.gyro.ratchet, "M2")
+        pressed = frozenset({"M2", "A"})
+        self.assertEqual(settings.output_buttons(pressed), {"A"})
+        self.assertEqual(settings.keys_for(pressed), ())
 
     def test_deadzone(self):
         self.assertEqual(config.apply_deadzone(1000, 0, 0.1), (0, 0))

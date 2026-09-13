@@ -65,6 +65,13 @@ class GyroAimTests(unittest.TestCase):
         self.assertEqual(dx, 0)
         self.assertAlmostEqual(abs(dy), 600, delta=15)
 
+    def test_direction_scales(self):
+        turn_and_tilt = report(gyro_dps=(40, 0, 40))
+        base_x, base_y, _ = self.feed(self.enabled_aim(sensitivity=10.0), turn_and_tilt, 0.5, start=0.002)
+        x, y, _ = self.feed(self.enabled_aim(sensitivity=10.0, horizontal_scale=1.5), turn_and_tilt, 0.5, start=0.002)
+        self.assertAlmostEqual(x, base_x * 1.5, delta=3)
+        self.assertAlmostEqual(y, base_y, delta=1)  # vertical unchanged
+
     def test_invert_flips_direction(self):
         normal, _, _ = self.feed(self.enabled_aim(), report(gyro_dps=(0, 0, 45)), 0.5, start=0.002)
         inverted, _, _ = self.feed(self.enabled_aim(invert_x=True), report(gyro_dps=(0, 0, 45)), 0.5, start=0.002)
@@ -86,6 +93,18 @@ class GyroAimTests(unittest.TestCase):
         aim.process([report(gyro_dps=drift, buttons={BUTTON})], now + 0.002)
         dx, dy, _ = self.feed(aim, report(gyro_dps=drift), 2.0, start=now + 0.002)
         self.assertLessEqual(abs(dx) + abs(dy), 1)  # uncalibrated this would be about 9 counts
+
+    def test_ratchet_pauses_movement_while_held(self):
+        aim = self.enabled_aim(sensitivity=10.0, ratchet="M2")
+        turning = report(gyro_dps=(0, 0, 90))
+        held = report(gyro_dps=(0, 0, 90), buttons={"M2"})
+        moved, _, now = self.feed(aim, turning, 0.5, start=0.002)
+        paused, _, now = self.feed(aim, held, 0.5, start=now)
+        resumed, _, _ = self.feed(aim, turning, 0.5, start=now)
+        self.assertAlmostEqual(abs(moved), 440, delta=15)  # 90 deg/s for ~0.49 s at 10 counts per degree
+        self.assertEqual(paused, 0)
+        self.assertAlmostEqual(abs(resumed), 440, delta=15)
+        self.assertTrue(aim.enabled)  # pausing doesn't switch gyro aiming off
 
     def test_long_gap_cannot_cause_a_jump(self):
         aim = self.enabled_aim(sensitivity=10.0)

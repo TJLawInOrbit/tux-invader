@@ -53,6 +53,12 @@ mouse ("Vader 5 Pro Keyboard and Mouse"), so it works in any game that lets you 
 while you use a controller. Turbo itself isn't sent to games. Gyro aiming starts off each time the controller
 connects.
 
+To recenter your hands, set a **ratchet** button (for example `ratchet = "M2"` under `[gyro]`).
+While you hold it, gyro aiming pauses, so you can bring the controller back to a comfortable
+position without moving your aim, like lifting a mouse off the desk. It isn't sent to games either.
+Turning and tilting at the same time always shifts your aim a few degrees compared with where the
+controller points, which is normal for gyro-as-mouse aiming; the ratchet is how you correct it.
+
 Drift is calibrated out automatically whenever the controller is held still for a moment, for
 example resting in your lap.
 
@@ -70,7 +76,9 @@ Edit the file and save it: `vader5-pad` applies the change within about a second
 If the file has a mistake, `./vader5-config check` and the service log (`./vader5-service logs`) say
 what's wrong, and the previous settings stay in use.
 
-- `[gyro]`: toggle button, sensitivity, inverting either direction, tightening
+- `[gyro]`: toggle button, ratchet (hold to pause) button, sensitivity, extra speed for left/right
+  (`horizontal_scale`) or up/down (`vertical_scale`), inverting either direction, and tightening
+  (lower it if small, slow movements feel stiff)
 - `[sticks]`: deadzones, for a stick that drifts
 - `[remap]`: make a button send something else:
   - another controller button: `M1 = "A"`
@@ -193,7 +201,9 @@ and captures from a real controller (firmware 7.1.4.0).
 3. Start automatically as a systemd user service (done; tested over cable and dongle, including
    power off and on)
 4. Later:
-   - Gyro aiming in PC games (working; to revisit: center slips on fast turns, try player-space gyro)
+   - Gyro aiming in PC games (working; ratchet button for recentering. Measured: no saturation or
+     gyro corruption; turning while tilting shifts aim a few degrees, and player/world-space or
+     pointer-direction math wasn't reliably better)
    - Settings file: gyro, deadzones, remaps (in progress); per-game profiles later
    - Put the project under git (done)
    - Maybe: settings window, real motion sensor for games
