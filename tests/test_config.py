@@ -5,6 +5,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
+from evdev import ecodes as e  # noqa: E402
+
 from test_protocol import input_report  # noqa: E402
 from vader5 import config, protocol  # noqa: E402
 
@@ -57,6 +59,37 @@ class ParseTests(unittest.TestCase):
                 with self.assertRaisesRegex(config.ConfigError, message):
                     config.parse(text)
 
+    def test_key_and_mouse_remaps(self):
+        settings = config.parse("""
+            [remap]
+            M1 = "key:space"
+            M2 = "key:ctrl+c"
+            C = "mouse:right"
+            Z = "key:shift + mouse:left"
+        """)
+        self.assertEqual(settings.remap, {})
+        codes = {name: combo.codes for name, combo in settings.key_remap.items()}
+        self.assertEqual(codes, {
+            "M1": (e.KEY_SPACE,),
+            "M2": (e.KEY_LEFTCTRL, e.KEY_C),
+            "C": (e.BTN_RIGHT,),
+            "Z": (e.KEY_LEFTSHIFT, e.BTN_LEFT),
+        })
+        self.assertEqual(settings.key_remap["M2"].text, "key:ctrl+c")
+
+    def test_key_remap_mistakes_are_explained(self):
+        cases = {
+            '[remap]\nM1 = "key:banana"': "unknown key 'banana'",
+            '[remap]\nM1 = "keys:space"': "should start with key: or mouse:",
+            '[remap]\nM1 = "mouse:wheel"': "unknown mouse button 'wheel'",
+            '[remap]\nM1 = "key:"': "missing a key name",
+            '[remap]\nM1 = "key:ctrl+"': "missing a key name",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(config.ConfigError, message):
+                    config.parse(text)
+
     def test_missing_file_gives_the_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
             self.assertEqual(config.load(os.path.join(folder, "none.toml")), config.Settings())
@@ -66,6 +99,14 @@ class ForGamesTests(unittest.TestCase):
     def test_remap_and_gyro_button(self):
         settings = config.parse('[remap]\nM1 = "A"\nM2 = "NONE"')
         self.assertEqual(settings.output_buttons(frozenset({"M1", "M2", "TURBO", "B"})), {"A", "B"})
+
+    def test_keys_go_to_the_keyboard_not_the_controller(self):
+        settings = config.parse('[remap]\nM2 = "key:ctrl+c"\nM1 = "key:space"\nTURBO = "key:a"')
+        pressed = frozenset({"M2", "M1", "B", "TURBO"})
+        self.assertEqual(settings.output_buttons(pressed), {"B"})
+        # fixed button order (M1 before M2), no repeats, and the gyro toggle (TURBO) never presses keys
+        self.assertEqual(settings.keys_for(pressed), (e.KEY_SPACE, e.KEY_LEFTCTRL, e.KEY_C))
+        self.assertEqual(settings.keys_for(frozenset({"B"})), ())
 
     def test_deadzone(self):
         self.assertEqual(config.apply_deadzone(1000, 0, 0.1), (0, 0))

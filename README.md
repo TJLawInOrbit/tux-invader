@@ -49,8 +49,8 @@ unplug, switch between cable and dongle, or turn the controller off, it reconnec
 Press **Turbo** to turn gyro aiming on or off. A short light buzz means on; a longer heavy buzz means
 off. While it's on, turning the controller left and right moves the mouse sideways, and tilting it
 up and down moves it vertically, on top of your normal controller input. Games see an ordinary
-mouse ("Vader 5 Pro Gyro Mouse"), so it works in any game that lets you aim with the mouse while
-you use a controller. Turbo itself isn't sent to games. Gyro aiming starts off each time the controller
+mouse ("Vader 5 Pro Keyboard and Mouse"), so it works in any game that lets you aim with the mouse
+while you use a controller. Turbo itself isn't sent to games. Gyro aiming starts off each time the controller
 connects.
 
 Drift is calibrated out automatically whenever the controller is held still for a moment, for
@@ -72,7 +72,15 @@ what's wrong, and the previous settings stay in use.
 
 - `[gyro]`: toggle button, sensitivity, inverting either direction, tightening
 - `[sticks]`: deadzones, for a stick that drifts
-- `[remap]`: make a button send a different one or turn it off, e.g. `M1 = "A"` or `M2 = "NONE"`
+- `[remap]`: make a button send something else:
+  - another controller button: `M1 = "A"`
+  - a keyboard key or combination: `M2 = "key:space"`, `M3 = "key:ctrl+c"`
+  - a mouse button: `M4 = "mouse:right"` (`left`, `right`, `middle`, `back`, `forward`)
+  - nothing: `RM = "NONE"`
+
+  Key names are like `a`, `1`, `space`, `enter`, `esc`, `tab`, `ctrl`, `shift`, `alt`, `super`,
+  `f1` and `f13`; the full list is in `/usr/include/linux/input-event-codes.h`, without `KEY_`.
+  Keys are released when you let go of the button, and also if the controller turns off.
 
 ### Start automatically
 
@@ -141,7 +149,8 @@ python3 -m unittest discover tests
 | `vader5/device.py` | Finds the controller, handshake, test mode on/off, rumble |
 | `vader5/viewer.py` | Live viewer (curses and text mode) |
 | `vader5/virtual_pad.py` | Virtual Xbox Elite controller (uinput): button mapping, rumble requests |
-| `vader5/gyro.py` | Gyro aiming: toggle, drift calibration, gyro mouse (uinput) |
+| `vader5/gyro.py` | Gyro aiming: toggle, drift calibration |
+| `vader5/keyboard_mouse.py` | Virtual keyboard and mouse (uinput): gyro movement, keys for remapped buttons |
 | `vader5/config.py`, `vader5-config` | Settings file: loading, checking, reloading on save |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |

@@ -18,8 +18,9 @@ import os
 import sys
 import tomllib
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
-from . import protocol
+from . import keyboard_mouse, protocol
 from .gyro import GyroSettings
 from .virtual_pad import BUTTON_CODES
 
@@ -51,9 +52,13 @@ left_deadzone = 0.0
 right_deadzone = 0.0
 
 [remap]
-# physical button = the button it sends, or "NONE" to turn it off. For example:
-# M1 = "A"
-# M2 = "NONE"
+# physical button = what it sends instead. It can be:
+#   another controller button      M1 = "A"
+#   a keyboard key or combination  M2 = "key:space"      M3 = "key:ctrl+c"
+#   a mouse button                 M4 = "mouse:right"    (left, right, middle, back, forward)
+#   nothing                        RM = "NONE"
+# Key names: a-z, 0-9, space, enter, esc, tab, backspace, ctrl, shift, alt, super, up, down, left,
+# right, f1-f24, and everything else in /usr/include/linux/input-event-codes.h without "KEY_".
 """
 
 
@@ -61,23 +66,37 @@ class ConfigError(ValueError):
     """The settings file has a mistake; the message says where."""
 
 
+class KeyCombo(NamedTuple):
+    text: str  # as written in the settings file, e.g. "key:ctrl+c"
+    codes: tuple[int, ...]  # keyboard key / mouse button codes, in the order they're pressed
+
+
 @dataclass
 class Settings:
     gyro: GyroSettings = field(default_factory=GyroSettings)
     left_deadzone: float = 0.0  # fraction of full stick travel ignored around the center
     right_deadzone: float = 0.0
-    remap: dict[str, str] = field(default_factory=dict)  # physical button -> button it sends, or NONE
+    remap: dict[str, str] = field(default_factory=dict)  # physical button -> controller button, or NONE
+    key_remap: dict[str, KeyCombo] = field(default_factory=dict)  # physical button -> keys/mouse buttons
 
     def output_buttons(self, pressed: frozenset[str]) -> frozenset[str]:
-        """The buttons games should see for these physical presses."""
+        """The controller buttons games should see for these physical presses."""
         out = set()
         for name in pressed:
-            if name == self.gyro.button:
-                continue  # the gyro toggle never reaches games
+            if name == self.gyro.button or name in self.key_remap:
+                continue  # the gyro toggle never reaches games; key remaps go to the keyboard instead
             target = self.remap.get(name, name)
             if target != NONE:
                 out.add(target)
         return frozenset(out)
+
+    def keys_for(self, pressed: frozenset[str]) -> tuple[int, ...]:
+        """Keyboard keys and mouse buttons to hold down for these physical presses, in press order."""
+        codes: list[int] = []
+        for name in protocol.BUTTON_NAMES:  # a fixed order, so holding two remapped buttons is predictable
+            if name in pressed and name in self.key_remap and name != self.gyro.button:
+                codes += [code for code in self.key_remap[name].codes if code not in codes]
+        return tuple(codes)
 
     def for_games(self, state: protocol.InputState) -> protocol.InputState:
         """The input state as games should see it: remapped buttons and stick deadzones applied."""
@@ -150,7 +169,13 @@ def parse(text: str) -> Settings:
 
     for source, target in _table(data, "remap").items():
         name = _button(source, "[remap]", protocol.BUTTON_NAMES)
-        settings.remap[name] = _button(target, f"[remap] {source}", (*BUTTON_CODES, NONE))
+        where = f"[remap] {source}"
+        if isinstance(target, str) and ":" in target:
+            settings.key_remap[name] = _key_combo(target, where)
+            settings.remap.pop(name, None)
+        else:
+            settings.remap[name] = _button(target, where, (*BUTTON_CODES, NONE))
+            settings.key_remap.pop(name, None)
     return settings
 
 
@@ -174,6 +199,35 @@ def _button(value, where: str, allowed) -> str:
     if name not in allowed:
         raise ConfigError(f"{where}: unknown button '{value}' (use one of: {' '.join(allowed)})")
     return name
+
+
+def _key_combo(text: str, where: str) -> KeyCombo:
+    """Parse "key:space", "key:ctrl+c" or "mouse:right". A part without a prefix uses the previous one."""
+    codes: list[int] = []
+    kind = None
+    for part in text.split("+"):
+        part = part.strip()
+        if ":" in part:
+            kind, _, part = part.partition(":")
+            kind, part = kind.strip().lower(), part.strip()
+        if kind not in ("key", "mouse"):
+            raise ConfigError(f'{where}: "{text}" should start with key: or mouse:, like "key:space" or "mouse:right"')
+        if not part:
+            raise ConfigError(f'{where}: "{text}" is missing a key name')
+        if kind == "key":
+            code = keyboard_mouse.key_code(part)
+            if code is None:
+                raise ConfigError(
+                    f"{where}: unknown key '{part}' (examples: a, 1, space, enter, esc, tab, ctrl, shift, alt, "
+                    f"f1, f13; all names are in /usr/include/linux/input-event-codes.h without KEY_)"
+                )
+        else:
+            code = keyboard_mouse.mouse_code(part)
+            if code is None:
+                raise ConfigError(f"{where}: unknown mouse button '{part}' (use left, right, middle, back or forward)")
+        if code not in codes:
+            codes.append(code)
+    return KeyCombo(text.strip(), tuple(codes))
 
 
 def _number(value, where: str, low: float, high: float) -> float:
@@ -230,11 +284,13 @@ class ConfigWatcher:
 
 def describe(settings: Settings) -> str:
     gyro = settings.gyro
+    remaps = [f"{source} -> {target}" for source, target in settings.remap.items()]
+    remaps += [f"{source} -> {combo.text}" for source, combo in settings.key_remap.items()]
     return "\n".join([
         f"gyro: toggle {gyro.button}, sensitivity {gyro.sensitivity:g}, invert x {str(gyro.invert_x).lower()}, "
         f"invert y {str(gyro.invert_y).lower()}, tightening {gyro.tightening_dps:g}",
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",
-        "remap: " + (", ".join(f"{source} -> {target}" for source, target in sorted(settings.remap.items())) or "none"),
+        "remap: " + (", ".join(sorted(remaps)) or "none"),
     ])
 
 

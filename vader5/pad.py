@@ -4,9 +4,9 @@
     ./vader5-pad --verbose     also print button presses and rumble
     ./vader5-service install   or run it automatically (see README.md)
 
-The virtual controller and the gyro mouse only exist while the real controller is on and sending
-input, so Steam and games don't list a controller that's switched off. Settings come from
-~/.config/vader5/config.toml (see config.py) and apply as soon as the file is saved.
+The virtual controller and the virtual keyboard and mouse only exist while the real controller is
+on and sending input, so Steam and games don't list a controller that's switched off. Settings come
+from ~/.config/vader5/config.toml (see config.py) and apply as soon as the file is saved.
 """
 
 from __future__ import annotations
@@ -24,7 +24,8 @@ import evdev
 from . import protocol
 from .config import ConfigWatcher
 from .device import Controller, DeviceError, detach_xpad, find_xpad_event, reattach_xpad
-from .gyro import GyroAim, VirtualMouse
+from .gyro import GyroAim
+from .keyboard_mouse import VirtualKeyboardMouse
 from .virtual_pad import VirtualElite
 
 RECONNECT_S = 1.0
@@ -79,18 +80,19 @@ def hide_xpad(pad: Controller) -> tuple[str | None, evdev.InputDevice | None]:
     return None, device
 
 
-def create_virtual_devices() -> tuple[VirtualElite, VirtualMouse]:
+def create_virtual_devices() -> tuple[VirtualElite, VirtualKeyboardMouse]:
     try:
         vpad = VirtualElite()
     except OSError as err:
         raise DeviceError(f"Couldn't create the virtual controller ({err}). Check access to /dev/uinput.") from err
     try:
-        mouse = VirtualMouse()
+        keyboard_mouse = VirtualKeyboardMouse()
     except OSError as err:
         vpad.close()
-        raise DeviceError(f"Couldn't create the gyro mouse ({err}). Check access to /dev/uinput.") from err
-    log(f"controller active: virtual Xbox Elite controller ({vpad.device_path}) and gyro mouse ({mouse.device_path}) created")
-    return vpad, mouse
+        raise DeviceError(f"Couldn't create the virtual keyboard and mouse ({err}). Check access to /dev/uinput.") from err
+    log(f"controller active: virtual Xbox Elite controller ({vpad.device_path}) "
+        f"and keyboard and mouse ({keyboard_mouse.device_path}) created")
+    return vpad, keyboard_mouse
 
 
 def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose: bool) -> None:
@@ -107,7 +109,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
     log(f"connected: {pad.path}{details} · press {gyro.settings.button} to toggle gyro aiming")
 
     vpad: VirtualElite | None = None
-    mouse: VirtualMouse | None = None
+    keyboard_mouse: VirtualKeyboardMouse | None = None
     last_report = time.monotonic()
     sent_rumble, last_rumble_send = (0, 0), 0.0
     cue, cue_until = (0, 0), 0.0
@@ -123,11 +125,13 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
             if states:
                 last_report = now
                 if vpad is None:
-                    vpad, mouse = create_virtual_devices()
+                    vpad, keyboard_mouse = create_virtual_devices()
+                settings = watcher.settings
                 for state in states:
-                    vpad.update(watcher.settings.for_games(state))
+                    vpad.update(settings.for_games(state))
+                    keyboard_mouse.hold(settings.keys_for(state.buttons))
                 dx, dy, toggled = gyro.process(states, now)
-                mouse.move(dx, dy)
+                keyboard_mouse.move(dx, dy)
                 if toggled:
                     log(f"gyro aiming {'on' if gyro.enabled else 'off'}")
                     cue, length = GYRO_CUE_ON if gyro.enabled else GYRO_CUE_OFF
@@ -137,10 +141,10 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
                     log("buttons: " + (" ".join(n for n in protocol.BUTTON_NAMES if n in last_buttons) or "-"))
             elif vpad and now - last_report > IDLE_S:
                 vpad.close()
-                mouse.close()
-                vpad = mouse = None
+                keyboard_mouse.close()  # also releases any keys still held
+                vpad = keyboard_mouse = None
                 sent_rumble = (0, 0)
-                log("controller idle (off or asleep): virtual controller and gyro mouse removed")
+                log("controller idle (off or asleep): virtual controller and keyboard and mouse removed")
 
             if vpad:
                 vpad.handle_events(now)
@@ -152,7 +156,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
                         log(f"rumble: strong {wanted[0]} weak {wanted[1]}")
                     sent_rumble, last_rumble_send = wanted, now
     finally:
-        for device in (vpad, mouse):
+        for device in (vpad, keyboard_mouse):
             if device:
                 device.close()
         if detached:

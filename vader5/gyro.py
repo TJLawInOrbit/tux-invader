@@ -10,9 +10,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from evdev import UInput
-from evdev import ecodes as e
-
 from . import protocol
 
 
@@ -99,29 +96,3 @@ class GyroAim:
         if threshold <= 0 or abs(rate) >= threshold:
             return rate
         return rate * abs(rate) / threshold
-
-
-class VirtualMouse:
-    """A plain uinput mouse that gyro aiming moves."""
-
-    def __init__(self):
-        capabilities = {
-            e.EV_REL: [e.REL_X, e.REL_Y],
-            e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE],  # so desktops treat it as a mouse
-        }
-        self._ui = UInput(capabilities, name="Vader 5 Pro Gyro Mouse", phys="vader5-pad/input1")
-
-    @property
-    def device_path(self) -> str:
-        return self._ui.device.path
-
-    def move(self, dx: int, dy: int) -> None:
-        if dx:
-            self._ui.write(e.EV_REL, e.REL_X, dx)
-        if dy:
-            self._ui.write(e.EV_REL, e.REL_Y, dy)
-        if dx or dy:
-            self._ui.syn()
-
-    def close(self) -> None:
-        self._ui.close()
