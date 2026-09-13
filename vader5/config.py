@@ -2,7 +2,7 @@
 
 vader5-pad reads it at start and again whenever the file is saved, so changes apply within about a
 second without a restart. If the file has a mistake, the error is logged and the previous settings
-stay in use.
+stay in use. The settings window (vader5-settings) writes it with save().
 
     ./vader5-config create   write a starter file with explanations (if there isn't one)
     ./vader5-config check    show mistakes, or the settings that will be used
@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import math
 import os
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -26,47 +28,6 @@ from .virtual_pad import BUTTON_CODES
 
 NONE = "NONE"  # remap target that turns a button off
 ALIASES = {"VIEW": "SELECT", "BACK": "SELECT", "MENU": "START", "GUIDE": "HOME"}
-
-STARTER = """\
-# Vader 5 Pro settings. vader5-pad applies changes about a second after you save.
-#
-# Button names (upper or lower case):
-#   A B X Y LB RB L3 R3 SELECT START HOME UP DOWN LEFT RIGHT
-#   M1 M2 M3 M4 C Z LM RM FN TURBO
-#   LT RT (the triggers' full-press click; only usable as a remap source or the gyro button)
-
-[gyro]
-# Button that turns gyro aiming on and off. It isn't sent to games.
-button = "TURBO"
-# Hold this button to pause gyro aiming while you bring your hands back to center, like lifting a
-# mouse off the desk. It isn't sent to games. "NONE" = no pause button. Turbo can't be held, so it
-# can't be used here.
-ratchet = "NONE"
-# Mouse movement per degree the controller turns. Higher is faster.
-sensitivity = 15.0
-# Extra speed for one direction on top of sensitivity: 1.25 = a quarter more, 0.8 = a fifth less.
-horizontal_scale = 1.0
-vertical_scale = 1.0
-invert_x = false
-invert_y = false
-# Rotation slower than this many degrees per second is scaled down to steady your hands. 0 = off.
-tightening = 1.0
-
-[sticks]
-# How much of each stick's travel around the center is ignored, from 0.0 (off) to 0.9.
-# Games have their own deadzones, so leave these at 0.0 unless a stick drifts.
-left_deadzone = 0.0
-right_deadzone = 0.0
-
-[remap]
-# physical button = what it sends instead. It can be:
-#   another controller button      M1 = "A"
-#   a keyboard key or combination  M2 = "key:space"      M3 = "key:ctrl+c"
-#   a mouse button                 M4 = "mouse:right"    (left, right, middle, back, forward)
-#   nothing                        RM = "NONE"
-# Key names: a-z, 0-9, space, enter, esc, tab, backspace, ctrl, shift, alt, super, up, down, left,
-# right, f1-f24, and everything else in /usr/include/linux/input-event-codes.h without "KEY_".
-"""
 
 
 class ConfigError(ValueError):
@@ -188,12 +149,84 @@ def parse(text: str) -> Settings:
         name = _button(source, "[remap]", protocol.BUTTON_NAMES)
         where = f"[remap] {source}"
         if isinstance(target, str) and ":" in target:
-            settings.key_remap[name] = _key_combo(target, where)
+            settings.key_remap[name] = key_combo(target, where)
             settings.remap.pop(name, None)
         else:
             settings.remap[name] = _button(target, where, (*BUTTON_CODES, NONE))
             settings.key_remap.pop(name, None)
     return settings
+
+
+def render(settings: Settings) -> str:
+    """The settings as a complete settings file, with explanations."""
+    gyro = settings.gyro
+    lines = [
+        "# Vader 5 Pro settings. vader5-pad applies changes about a second after you save.",
+        "# Edit this file by hand or with the settings window (vader5-settings).",
+        "#",
+        "# Button names (upper or lower case):",
+        "#   A B X Y LB RB L3 R3 SELECT START HOME UP DOWN LEFT RIGHT",
+        "#   M1 M2 M3 M4 C Z LM RM FN TURBO",
+        "#   LT RT (the triggers' full-press click; only usable as a remap source or the gyro button)",
+        "",
+        "[gyro]",
+        "# Button that turns gyro aiming on and off. It isn't sent to games.",
+        f"button = {_quote(gyro.button)}",
+        "# Hold this button to pause gyro aiming while you bring your hands back to center, like lifting a",
+        '# mouse off the desk. It isn\'t sent to games. "NONE" = no pause button. Turbo can\'t be held, so it',
+        "# can't be used here.",
+        f"ratchet = {_quote(gyro.ratchet)}",
+        "# Mouse movement per degree the controller turns. Higher is faster.",
+        f"sensitivity = {float(gyro.sensitivity)!r}",
+        "# Extra speed for one direction on top of sensitivity: 1.25 = a quarter more, 0.8 = a fifth less.",
+        f"horizontal_scale = {float(gyro.horizontal_scale)!r}",
+        f"vertical_scale = {float(gyro.vertical_scale)!r}",
+        f"invert_x = {str(gyro.invert_x).lower()}",
+        f"invert_y = {str(gyro.invert_y).lower()}",
+        "# Rotation slower than this many degrees per second is scaled down to steady your hands. 0 = off.",
+        f"tightening = {float(gyro.tightening_dps)!r}",
+        "",
+        "[sticks]",
+        "# How much of each stick's travel around the center is ignored, from 0.0 (off) to 0.9.",
+        "# Games have their own deadzones, so leave these at 0.0 unless a stick drifts.",
+        f"left_deadzone = {float(settings.left_deadzone)!r}",
+        f"right_deadzone = {float(settings.right_deadzone)!r}",
+        "",
+        "[remap]",
+        "# physical button = what it sends instead. It can be:",
+        '#   another controller button      M1 = "A"',
+        '#   a keyboard key or combination  M2 = "key:space"      M3 = "key:ctrl+c"',
+        '#   a mouse button                 M4 = "mouse:right"    (left, right, middle, back, forward)',
+        '#   nothing                        RM = "NONE"',
+        "# Key names: a-z, 0-9, space, enter, esc, tab, backspace, ctrl, shift, alt, super, up, down, left,",
+        '# right, f1-f24, and everything else in /usr/include/linux/input-event-codes.h without "KEY_".',
+    ]
+    for name in protocol.BUTTON_NAMES:
+        if name in settings.key_remap:
+            lines.append(f"{name} = {_quote(settings.key_remap[name].text)}")
+        elif name in settings.remap:
+            lines.append(f"{name} = {_quote(settings.remap[name])}")
+    return "\n".join(lines) + "\n"
+
+
+def save(settings: Settings, path: str | None = None) -> str:
+    """Write the settings file, keeping the previous one as config.toml.bak. Returns the path."""
+    path = path or config_path()
+    text = render(settings)
+    if parse(text) != settings:
+        raise ConfigError("these settings couldn't be written without changing them")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        shutil.copy2(path, path + ".bak")
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(temporary, path)  # vader5-pad never sees a half-written file
+    return path
+
+
+def _quote(text: str) -> str:
+    return json.dumps(text)  # a valid TOML basic string for our button names and key combinations
 
 
 def _table(data: dict, name: str) -> dict:
@@ -218,7 +251,7 @@ def _button(value, where: str, allowed) -> str:
     return name
 
 
-def _key_combo(text: str, where: str) -> KeyCombo:
+def key_combo(text: str, where: str) -> KeyCombo:
     """Parse "key:space", "key:ctrl+c" or "mouse:right". A part without a prefix uses the previous one."""
     codes: list[int] = []
     kind = None
@@ -259,6 +292,9 @@ def _boolean(value, where: str) -> bool:
     if not isinstance(value, bool):
         raise ConfigError(f"{where} should be true or false")
     return value
+
+
+STARTER = render(Settings())
 
 
 class ConfigWatcher:

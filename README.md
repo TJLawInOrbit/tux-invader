@@ -66,6 +66,19 @@ The toggle button, sensitivity and direction can be changed in the settings file
 
 ### Settings
 
+The easiest way is the settings window:
+
+```sh
+./vader5-settings
+```
+
+It shows whether the controller is connected and the background service is running (with Start,
+Stop and "start at login"), and has tabs for the gyro, the sticks and button remaps. Save applies
+the changes within about a second. It writes the settings file in its standard layout, so comments
+you added to the file by hand aren't kept; the previous file is saved as `config.toml.bak`.
+
+You can also edit the file yourself:
+
 ```sh
 ./vader5-config create   # write a starter settings file with explanations
 ./vader5-config check    # show mistakes, or the settings in use
@@ -159,7 +172,8 @@ python3 -m unittest discover tests
 | `vader5/virtual_pad.py` | Virtual Xbox Elite controller (uinput): button mapping, rumble requests |
 | `vader5/gyro.py` | Gyro aiming: toggle, drift calibration |
 | `vader5/keyboard_mouse.py` | Virtual keyboard and mouse (uinput): gyro movement, keys for remapped buttons |
-| `vader5/config.py`, `vader5-config` | Settings file: loading, checking, reloading on save |
+| `vader5/config.py`, `vader5-config` | Settings file: loading, checking, writing, reloading on save |
+| `vader5/settings_window.py`, `vader5-settings` | Settings window (PyQt6) |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |
 

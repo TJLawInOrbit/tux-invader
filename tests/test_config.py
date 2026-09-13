@@ -102,6 +102,39 @@ class ParseTests(unittest.TestCase):
             self.assertEqual(config.load(os.path.join(folder, "none.toml")), config.Settings())
 
 
+class SaveTests(unittest.TestCase):
+    def test_written_file_reads_back_the_same(self):
+        settings = config.parse("""
+            [gyro]
+            button = "fn"
+            ratchet = "M2"
+            sensitivity = 22.5
+            horizontal_scale = 1.25
+            invert_y = true
+            tightening = 0.5
+            [sticks]
+            right_deadzone = 0.15
+            [remap]
+            M1 = "key:ctrl+c"
+            C = "mouse:right"
+            Z = "NONE"
+            RM = "a"
+        """)
+        self.assertEqual(config.parse(config.render(settings)), settings)
+        self.assertEqual(config.parse(config.render(config.Settings())), config.Settings())
+
+    def test_save_keeps_a_backup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "vader5", "config.toml")
+            config.save(config.Settings(), path)
+            self.assertFalse(os.path.exists(path + ".bak"))
+            changed = config.parse("[gyro]\nsensitivity = 30")
+            config.save(changed, path)
+            self.assertEqual(config.load(path), changed)
+            self.assertEqual(config.load(path + ".bak"), config.Settings())
+            self.assertFalse(os.path.exists(path + ".tmp"))
+
+
 class ForGamesTests(unittest.TestCase):
     def test_remap_and_gyro_button(self):
         settings = config.parse('[remap]\nM1 = "A"\nM2 = "NONE"')
