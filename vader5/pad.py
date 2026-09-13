@@ -5,7 +5,8 @@
     ./vader5-service install   or run it automatically (see README.md)
 
 The virtual controller and the gyro mouse only exist while the real controller is on and sending
-input, so Steam and games don't list a controller that's switched off.
+input, so Steam and games don't list a controller that's switched off. Settings come from
+~/.config/vader5/config.toml (see config.py) and apply as soon as the file is saved.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import time
 import evdev
 
 from . import protocol
+from .config import ConfigWatcher
 from .device import Controller, DeviceError, detach_xpad, find_xpad_event, reattach_xpad
 from .gyro import GyroAim, VirtualMouse
 from .virtual_pad import VirtualElite
@@ -91,10 +93,10 @@ def create_virtual_devices() -> tuple[VirtualElite, VirtualMouse]:
     return vpad, mouse
 
 
-def run_connection(pad: Controller, hide: bool, verbose: bool) -> None:
+def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose: bool) -> None:
     """Serve one controller connection (cable or dongle) until it goes away."""
-    gyro = GyroAim()
-    hidden = frozenset({gyro.settings.button})  # the gyro toggle isn't passed to games
+    watcher.check(time.monotonic())
+    gyro = GyroAim(watcher.settings.gyro)
 
     detached, grabbed = hide_xpad(pad) if hide else (None, None)
     details = f" · firmware {pad.info.firmware} · {pad.info.connection}" if pad.info else ""
@@ -114,13 +116,16 @@ def run_connection(pad: Controller, hide: bool, verbose: bool) -> None:
         while True:
             select.select([pad, vpad] if vpad else [pad], [], [], 0.05)
             now = time.monotonic()
+            if watcher.check(now):
+                gyro.settings = watcher.settings.gyro
+
             states = pad.poll(0)
             if states:
                 last_report = now
                 if vpad is None:
                     vpad, mouse = create_virtual_devices()
                 for state in states:
-                    vpad.update(state, hidden)
+                    vpad.update(watcher.settings.for_games(state))
                 dx, dy, toggled = gyro.process(states, now)
                 mouse.move(dx, dy)
                 if toggled:
@@ -183,13 +188,14 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(sig, _exit_on_signal)
 
     log("started")
+    watcher = ConfigWatcher(log=log)
     last_error = None
     try:
         while True:
             try:
                 with Controller(args.device) as pad:
                     last_error = None
-                    run_connection(pad, not args.no_hide, args.verbose)
+                    run_connection(pad, watcher, not args.no_hide, args.verbose)
             except DeviceError as err:
                 if str(err) != last_error:  # don't repeat the same message every second
                     log(f"{err}\n  Waiting for the controller...")

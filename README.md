@@ -56,8 +56,23 @@ connects.
 Drift is calibrated out automatically whenever the controller is held still for a moment, for
 example resting in your lap.
 
-Settings (toggle button, sensitivity, inverting an axis) are at the top of `vader5/gyro.py` for
-now. Run `./vader5-service restart` after changing them.
+The toggle button, sensitivity and direction can be changed in the settings file (see **Settings**).
+
+### Settings
+
+```sh
+./vader5-config create   # write a starter settings file with explanations
+./vader5-config check    # show mistakes, or the settings in use
+./vader5-config path     # where the file is: ~/.config/vader5/config.toml
+```
+
+Edit the file and save it: `vader5-pad` applies the change within about a second, with no restart.
+If the file has a mistake, `./vader5-config check` and the service log (`./vader5-service logs`) say
+what's wrong, and the previous settings stay in use.
+
+- `[gyro]`: toggle button, sensitivity, inverting either direction, tightening
+- `[sticks]`: deadzones, for a stick that drifts
+- `[remap]`: make a button send a different one or turn it off, e.g. `M1 = "A"` or `M2 = "NONE"`
 
 ### Start automatically
 
@@ -127,6 +142,7 @@ python3 -m unittest discover tests
 | `vader5/viewer.py` | Live viewer (curses and text mode) |
 | `vader5/virtual_pad.py` | Virtual Xbox Elite controller (uinput): button mapping, rumble requests |
 | `vader5/gyro.py` | Gyro aiming: toggle, drift calibration, gyro mouse (uinput) |
+| `vader5/config.py`, `vader5-config` | Settings file: loading, checking, reloading on save |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |
 
@@ -168,7 +184,7 @@ and captures from a real controller (firmware 7.1.4.0).
 3. Start automatically as a systemd user service (done; tested over cable and dongle, including
    power off and on)
 4. Later:
-   - Gyro aiming in PC games: gyro to mouse or right stick, with a toggle button and sensitivity (in progress)
-   - Config file: remaps, deadzones, gyro settings, profiles
-   - Put the project under git
+   - Gyro aiming in PC games (working; to revisit: center slips on fast turns, try player-space gyro)
+   - Settings file: gyro, deadzones, remaps (in progress); per-game profiles later
+   - Put the project under git (done)
    - Maybe: settings window, real motion sensor for games

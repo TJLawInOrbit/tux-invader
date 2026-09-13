@@ -25,11 +25,6 @@ class MappingTests(unittest.TestCase):
         pressed = {code for (etype, code), value in values.items() if etype == e.EV_KEY and value}
         self.assertEqual(pressed, {e.BTN_A, e.BTN_DPAD_UP, e.BTN_GRIPL, e.BTN_GRIPR, e.BTN_GRIPL2, e.BTN_GRIPR2})
 
-    def test_hidden_buttons_are_released(self):
-        z_pressed = state(bytes={13: 0x02})
-        self.assertEqual(virtual_pad.evdev_values(z_pressed)[(e.EV_KEY, e.BTN_TRIGGER_HAPPY2)], 1)
-        self.assertEqual(virtual_pad.evdev_values(z_pressed, frozenset({"Z"}))[(e.EV_KEY, e.BTN_TRIGGER_HAPPY2)], 0)
-
     def test_axes(self):
         values = virtual_pad.evdev_values(state(sticks=(1234, 100, -32768, -32768), bytes={15: 200, 16: 3}))
         self.assertEqual(values[(e.EV_ABS, e.ABS_X)], 1234)

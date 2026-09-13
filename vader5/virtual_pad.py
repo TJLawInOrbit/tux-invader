@@ -39,11 +39,8 @@ AXES = (
 )
 
 
-def evdev_values(state: protocol.InputState, hidden: frozenset[str] = frozenset()) -> dict[tuple[int, int], int]:
-    """Every (event type, code) -> value the virtual controller should report for this state.
-
-    Buttons named in `hidden` (e.g. the gyro toggle) are always reported as released.
-    """
+def evdev_values(state: protocol.InputState) -> dict[tuple[int, int], int]:
+    """Every (event type, code) -> value the virtual controller should report for this state."""
     lx, ly = state.left_stick
     rx, ry = state.right_stick
     values = {
@@ -53,7 +50,7 @@ def evdev_values(state: protocol.InputState, hidden: frozenset[str] = frozenset(
         (e.EV_ABS, e.ABS_Z): state.left_trigger, (e.EV_ABS, e.ABS_RZ): state.right_trigger,
     }
     for name, code in BUTTON_CODES.items():
-        values[(e.EV_KEY, code)] = int(name in state.buttons and name not in hidden)
+        values[(e.EV_KEY, code)] = int(name in state.buttons)
     return values
 
 
@@ -88,8 +85,8 @@ class VirtualElite:
     def fileno(self) -> int:
         return self._ui.fd
 
-    def update(self, state: protocol.InputState, hidden: frozenset[str] = frozenset()) -> None:
-        self._send(evdev_values(state, hidden))
+    def update(self, state: protocol.InputState) -> None:
+        self._send(evdev_values(state))
 
     def release_all(self) -> None:
         self._send(neutral_values())
