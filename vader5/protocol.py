@@ -109,7 +109,9 @@ class ControllerInfo:
     model: str
     connection: str
     firmware: str
-    battery: str
+    battery: str  # for display: "80%", "60% charging", "full" or "unknown"
+    battery_percent: int | None = None  # None when the controller doesn't say
+    charging: bool = False
 
 
 def strip_report_id(data: bytes) -> bytes:
@@ -141,11 +143,13 @@ def parse_info(data: bytes) -> ControllerInfo | None:
     firmware = ".".join(str(fw >> shift & 0xF) for shift in (12, 8, 4, 0))
     connection = {1: "wired", 2: "wireless"}.get(data[6], f"unknown ({data[6]})")
     status, level = data[11] >> 4, data[11] & 0x0F
+    percent: int | None
     if status == 2:
-        battery = "full"
+        battery, percent = "full", 100
     elif status in (0, 1):
-        battery = f"{min(level * 20, 100)}%" + (" charging" if status == 1 else "")
+        percent = min(level * 20, 100)
+        battery = f"{percent}%" + (" charging" if status == 1 else "")
     else:
-        battery = "unknown"
+        battery, percent = "unknown", None
     model = MODELS.get(data[5], f"unknown model {data[5]}")
-    return ControllerInfo(data[5], model, connection, firmware, battery)
+    return ControllerInfo(data[5], model, connection, firmware, battery, percent, status == 1)

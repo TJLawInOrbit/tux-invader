@@ -2,26 +2,33 @@
 
     ./vader5-settings
 
-Edits ~/.config/vader5/config.toml; vader5-pad applies saved changes within about a second. It also
-shows whether the controller and the background service are running, and can start or stop it.
+Edits ~/.config/vader5/config.toml, including per-game profiles; vader5-pad applies saved changes
+within about a second. It also shows whether the controller and the background service are running,
+and can start or stop it.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import subprocess
 import sys
+import time
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider, QTabWidget, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGridLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from . import config
-from .config import NONE, ConfigError, KeyCombo, Settings
+from . import status as status_file
+from .config import NONE, ConfigError, KeyCombo, Profile, Settings
 from .device import find_config_hidraws
+from .games import installed_steam_games
 from .virtual_pad import BUTTON_CODES
 
 SERVICE = "vader5-pad.service"
@@ -43,6 +50,23 @@ MOUSE_BUTTONS = ("left", "right", "middle", "back", "forward")
 ERROR_STYLE = "color: #e5534b;"
 OK_STYLE = "color: #57ab5a;"
 HINT_STYLE = "color: gray;"
+NOT_CONNECTED = "Not connected: turn the controller on, or plug in the cable or dongle"
+
+
+def controller_summary(current: dict | None, plugged_in: bool) -> str:
+    """One line about the controller: from vader5-pad's status while it runs, else from what's plugged in."""
+    if current is None:
+        return "Connected" if plugged_in else NOT_CONNECTED
+    if not current.get("connected"):
+        return NOT_CONNECTED
+    parts = [f"Connected ({current.get('connection') or 'unknown connection'})"]
+    battery = status_file.battery_text(current)
+    if battery:
+        parts.append(f"battery {battery}")
+    parts.append(f"gyro aiming {'on' if current.get('gyro') else 'off'}")
+    if current.get("profile"):
+        parts.append(f"profile {current['profile']}")
+    return " · ".join(parts)
 
 
 def hint(text: str) -> QLabel:
@@ -149,6 +173,49 @@ class RemapRow:
         self._sync()
 
 
+class AddProfileDialog(QDialog):
+    """Pick the game for a new profile: an installed Steam game, or a program name."""
+
+    def __init__(self, parent: QWidget, games: list[tuple[int, str]]):
+        super().__init__(parent)
+        self.setWindowTitle("Add game profile")
+        form = QFormLayout(self)
+        self.game = QComboBox()
+        for app_id, name in games:
+            self.game.addItem(name, app_id)
+        self.game.addItem("Another program (not on Steam)…", None)
+        self.program = QLineEdit()
+        self.program.setPlaceholderText("program file name, e.g. game.exe")
+        self.name = QLineEdit()
+        self.error = QLabel()
+        self.error.setWordWrap(True)
+        self.error.setStyleSheet(ERROR_STYLE)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        form.addRow("Game:", self.game)
+        form.addRow("Program:", self.program)
+        form.addRow("Profile name:", self.name)
+        form.addRow(hint("Steam games are recognized automatically while they run. For other games, type the "
+                         "program's file name as shown in System Monitor."))
+        form.addRow(self.error)
+        form.addRow(buttons)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        self.game.currentIndexChanged.connect(lambda _: self._game_changed())
+        self._game_changed()
+
+    def _game_changed(self) -> None:
+        is_program = self.game.currentData() is None
+        self.program.setEnabled(is_program)
+        if not is_program:
+            self.name.setText(self.game.currentText())
+
+    def steam_app_id(self) -> int | None:
+        return self.game.currentData()
+
+    def process(self) -> str | None:
+        return self.program.text() if self.game.currentData() is None else None
+
+
 class SettingsWindow(QMainWindow):
     def __init__(self, path: str | None = None, manage_service: bool = True):
         super().__init__()
@@ -156,12 +223,20 @@ class SettingsWindow(QMainWindow):
         self.manage_service = manage_service
         self._saved_text: str | None = None
         self._loading = False
+        self._switching = False
+        self.main_settings = Settings()  # the main settings, without profiles
+        self.profiles: list[Profile] = []  # each profile's own settings (overrides)
+        self.current = -1  # -1 = editing the main settings, else the index of the profile being edited
+        self._steam_games: dict[int, str] | None = None
         self.setWindowTitle("Vader 5 Pro Settings")
-        self.resize(760, 760)
+        self.resize(780, 820)
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addWidget(self._build_status())
+        layout.addLayout(self._build_profile_bar())
+        self.profile_hint = hint("")
+        layout.addWidget(self.profile_hint)
         tabs = QTabWidget()
         tabs.addTab(self._build_gyro_tab(), "Gyro")
         tabs.addTab(self._build_sticks_tab(), "Sticks")
@@ -200,6 +275,7 @@ class SettingsWindow(QMainWindow):
         box = QGroupBox("Status")
         grid = QGridLayout(box)
         self.controller_status = QLabel()
+        self.controller_status.setWordWrap(True)
         self.service_status = QLabel()
         self.start_button = QPushButton("Start")
         self.stop_button = QPushButton("Stop")
@@ -216,6 +292,20 @@ class SettingsWindow(QMainWindow):
         self.stop_button.clicked.connect(lambda: self._service("stop"))
         self.autostart.clicked.connect(lambda checked: self._service("enable" if checked else "disable"))
         return box
+
+    def _build_profile_bar(self) -> QHBoxLayout:
+        bar = QHBoxLayout()
+        self.profile_select = QComboBox()
+        self.add_profile_button = QPushButton("Add game profile…")
+        self.delete_profile_button = QPushButton("Delete profile")
+        bar.addWidget(QLabel("Editing:"))
+        bar.addWidget(self.profile_select, 1)
+        bar.addWidget(self.add_profile_button)
+        bar.addWidget(self.delete_profile_button)
+        self.profile_select.currentIndexChanged.connect(self._profile_selected)
+        self.add_profile_button.clicked.connect(self._ask_for_profile)
+        self.delete_profile_button.clicked.connect(lambda: self.delete_profile())
+        return bar
 
     def _build_gyro_tab(self) -> QWidget:
         page = QWidget()
@@ -305,15 +395,12 @@ class SettingsWindow(QMainWindow):
         self.left_deadzone.setValue(settings.left_deadzone)
         self.right_deadzone.setValue(settings.right_deadzone)
         for name, row in self.remap_rows.items():
-            if name in settings.key_remap:
-                row.set_target(settings.key_remap[name].text)
-            else:
-                row.set_target(settings.remap.get(name))
+            row.set_target(settings.target(name))
         self._loading = False
         self._changed()
 
-    def settings_from_window(self) -> Settings:
-        """The settings shown in the window, checked exactly like the settings file. Raises ConfigError."""
+    def _form_settings(self) -> Settings:
+        """The settings shown on the tabs (without profiles), checked like the settings file. Raises ConfigError."""
         settings = Settings()
         gyro = settings.gyro
         gyro.button = self.gyro_button.currentData()
@@ -335,6 +422,29 @@ class SettingsWindow(QMainWindow):
             else:
                 settings.remap[name] = target
         return config.parse(config.render(settings))
+
+    def settings_from_window(self) -> Settings:
+        """Everything in the window (main settings and profiles), checked like the settings file. Raises ConfigError."""
+        form = self._form_settings()
+        main, profiles = self.main_settings, list(self.profiles)
+        if self.current < 0:
+            main = form
+        else:
+            profiles[self.current] = dataclasses.replace(
+                profiles[self.current], overrides=config.overrides_between(main, form))
+        combined = dataclasses.replace(main, profiles=[dataclasses.replace(p, settings=None) for p in profiles])
+        return config.parse(config.render(combined))
+
+    def _store_form(self) -> bool:
+        """Keep what's on the tabs before switching what is being edited."""
+        try:
+            everything = self.settings_from_window()
+        except ConfigError as err:
+            self._say(str(err), ERROR_STYLE)
+            return False
+        self.main_settings = dataclasses.replace(everything, profiles=[])
+        self.profiles = list(everything.profiles)
+        return True
 
     def _changed(self) -> None:
         if self._loading:
@@ -360,6 +470,92 @@ class SettingsWindow(QMainWindow):
         self.message.setText(text)
         self.message.setStyleSheet(style)
 
+    # ------------------------------------------------------------------ profiles
+
+    def _game_label(self, profile: Profile) -> str:
+        if self._steam_games is None:
+            self._steam_games = dict(installed_steam_games())
+        parts = [self._steam_games.get(app_id, f"Steam game {app_id}") for app_id in profile.steam_app_ids]
+        return " or ".join(parts + list(profile.processes))
+
+    def _show_profile_list(self, select: int) -> None:
+        self._switching = True
+        self.profile_select.clear()
+        self.profile_select.addItem("Main settings (all games)")
+        for profile in self.profiles:
+            self.profile_select.addItem(f"Game profile: {profile.name}")
+        self.profile_select.setCurrentIndex(select + 1)
+        self._switching = False
+        self.current = select
+        self._show_current()
+
+    def _show_current(self) -> None:
+        self.delete_profile_button.setEnabled(self.current >= 0)
+        if self.current < 0:
+            self.defaults_button.setText("Restore defaults")
+            self.profile_hint.setText("Used for every game, except where a game profile changes something.")
+            self._show_settings(self.main_settings)
+            return
+        profile = self.profiles[self.current]
+        self.defaults_button.setText("Match main settings")
+        self.profile_hint.setText(f"Used while {self._game_label(profile)} is running. Settings you change here "
+                                  "apply to that game only; everything else follows the main settings.")
+        combined = dataclasses.replace(self.main_settings, profiles=[dataclasses.replace(profile, settings=None)])
+        try:
+            self._show_settings(config.parse(config.render(combined)).profiles[0].settings)
+        except ConfigError as err:
+            self._show_settings(self.main_settings)
+            self._say(f"This profile no longer fits the main settings ({err}); it now shows the main settings.",
+                      ERROR_STYLE)
+
+    def _profile_selected(self, index: int) -> None:
+        if self._switching or index < 0:
+            return
+        if not self._store_form():  # stay put so the mistake can be fixed first
+            self._switching = True
+            self.profile_select.setCurrentIndex(self.current + 1)
+            self._switching = False
+            return
+        self.current = index - 1
+        self._show_current()
+
+    def add_profile(self, name: str, steam_app_id: int | None = None, process: str | None = None) -> str | None:
+        """Add a game profile and start editing it. Returns a message instead if it can't be added."""
+        name = name.strip()
+        process = (process or "").strip().lower()
+        if not name:
+            return "Give the profile a name."
+        if any(profile.name.lower() == name.lower() for profile in self.profiles):
+            return f'There is already a profile called "{name}".'
+        if not steam_app_id and not process:
+            return "Choose a Steam game or type a program name."
+        if not self._store_form():
+            return self.message.text()
+        self.profiles.append(Profile(name, (steam_app_id,) if steam_app_id else (), (process,) if process else ()))
+        self._show_profile_list(len(self.profiles) - 1)
+        return None
+
+    def _ask_for_profile(self) -> None:
+        if self._steam_games is None:
+            self._steam_games = dict(installed_steam_games())
+        dialog = AddProfileDialog(self, sorted(self._steam_games.items(), key=lambda game: game[1].lower()))
+        while dialog.exec():
+            error = self.add_profile(dialog.name.text(), dialog.steam_app_id(), dialog.process())
+            if error is None:
+                return
+            dialog.error.setText(error)
+
+    def delete_profile(self, confirm: bool = True) -> None:
+        if self.current < 0:
+            return
+        name = self.profiles[self.current].name
+        if confirm:
+            answer = QMessageBox.question(self, "Delete profile", f'Delete the game profile "{name}"?')
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        del self.profiles[self.current]  # the tabs showed this profile, so there's nothing else to keep
+        self._show_profile_list(-1)
+
     # ------------------------------------------------------------------ actions
 
     def revert(self) -> None:
@@ -371,12 +567,15 @@ class SettingsWindow(QMainWindow):
             settings = Settings()
             self._saved_text = None
             note = f"Your settings file has a mistake ({err}). Showing the defaults; Save replaces the file and keeps a backup."
-        self._show_settings(settings)
+        self.main_settings = dataclasses.replace(settings, profiles=[])
+        self.profiles = list(settings.profiles)
+        self._show_profile_list(-1)
         if note:
             self._say(note, ERROR_STYLE if "mistake" in note else "")
 
     def restore_defaults(self) -> None:
-        self._show_settings(Settings())
+        # for a profile, showing the main settings means it changes nothing any more
+        self._show_settings(Settings() if self.current < 0 else self.main_settings)
 
     def save(self) -> bool:
         try:
@@ -385,6 +584,8 @@ class SettingsWindow(QMainWindow):
         except (ConfigError, OSError) as err:
             self._say(f"Couldn't save: {err}", ERROR_STYLE)
             return False
+        self.main_settings = dataclasses.replace(settings, profiles=[])
+        self.profiles = list(settings.profiles)
         self._saved_text = config.render(settings)
         self._changed()
         running = self.manage_service and self._systemctl("is-active") == "active"
@@ -393,9 +594,9 @@ class SettingsWindow(QMainWindow):
         return True
 
     def refresh_status(self) -> None:
-        connections = find_config_hidraws()
-        self.controller_status.setText("Connected" if connections else
-                                       "Not connected: turn the controller on, or plug in the cable or dongle")
+        current = status_file.read()
+        plugged_in = bool(find_config_hidraws()) if current is None else False
+        self.controller_status.setText(controller_summary(current, plugged_in))
         if not self.manage_service:
             self.service_status.setText("(not managed here)")
             for widget in (self.start_button, self.stop_button, self.autostart):
@@ -440,11 +641,72 @@ class SettingsWindow(QMainWindow):
         event.accept()
 
 
+def instance_socket_path() -> str:
+    return os.path.join(status_file.runtime_dir(), "settings.sock")
+
+
+def forward_to_running_window(path: str, wait_s: float = 3.0) -> bool:
+    """Ask an already open settings window to come to the front. Returns False if none answers."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        socket = QLocalSocket()
+        socket.connectToServer(path)
+        if socket.waitForConnected(300):
+            # KDE only brings a window to the front with the activation token from the click that asked for it
+            socket.write(f"show {os.environ.get('XDG_ACTIVATION_TOKEN', '')}\n".encode())
+            socket.waitForBytesWritten(500)
+            socket.disconnectFromServer()
+            return True
+        if time.monotonic() >= deadline:  # the first window may still be starting up
+            return False
+        time.sleep(0.1)
+
+
+class SingleInstance:
+    """Lets later launches bring this window to the front instead of opening another one."""
+
+    def __init__(self, window: QMainWindow, path: str):
+        self.window = window
+        QLocalServer.removeServer(path)  # a socket left behind by a crash; only the lock holder gets here
+        self.server = QLocalServer()
+        if not self.server.listen(path):
+            print(f"vader5-settings: later launches can't reach this window ({self.server.errorString()})",
+                  file=sys.stderr)
+        self.server.newConnection.connect(self._accept)
+
+    def _accept(self) -> None:
+        while self.server.hasPendingConnections():
+            socket = self.server.nextPendingConnection()
+            socket.readyRead.connect(lambda s=socket: self._handle(s))
+            if socket.bytesAvailable():
+                self._handle(socket)
+
+    def _handle(self, socket: QLocalSocket) -> None:
+        message = bytes(socket.readAll()).decode(errors="replace").strip()
+        if message.startswith("show"):
+            token = message[len("show"):].strip()
+            if token:
+                os.environ["XDG_ACTIVATION_TOKEN"] = token  # Qt uses it for the next activation
+            if self.window.isMinimized():
+                self.window.showNormal()
+            self.window.show()
+            self.window.raise_()
+            self.window.activateWindow()
+        socket.disconnectFromServer()
+
+    def close(self) -> None:
+        self.server.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     app = QApplication([sys.argv[0], *(sys.argv[1:] if argv is None else argv)])
     app.setApplicationName("Vader 5 Pro Settings")
     app.setDesktopFileName("vader5-settings")
+    lock = status_file.single_instance_lock("vader5-settings")
+    if lock is None:  # already open: bring that window to the front instead
+        return 0 if forward_to_running_window(instance_socket_path()) else 1
     window = SettingsWindow()
+    instance = SingleInstance(window, instance_socket_path())  # noqa: F841 - kept alive with the window
     window.show()
     return app.exec()
 

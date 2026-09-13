@@ -6,14 +6,13 @@
 
 The virtual controller and the virtual keyboard and mouse only exist while the real controller is
 on and sending input, so Steam and games don't list a controller that's switched off. Settings come
-from ~/.config/vader5/config.toml (see config.py) and apply as soon as the file is saved.
+from ~/.config/vader5/config.toml (see config.py) and apply as soon as the file is saved. The
+current state is written to a status file (see status.py) for the tray icon and settings window.
 """
 
 from __future__ import annotations
 
 import argparse
-import fcntl
-import os
 import select
 import signal
 import sys
@@ -22,14 +21,18 @@ import time
 import evdev
 
 from . import protocol
+from . import status as status_file
 from .config import ConfigWatcher
 from .device import Controller, DeviceError, detach_xpad, find_xpad_event, reattach_xpad
+from .games import GameWatcher
 from .gyro import GyroAim
 from .keyboard_mouse import VirtualKeyboardMouse
+from .status import single_instance_lock
 from .virtual_pad import VirtualElite
 
 RECONNECT_S = 1.0
 IDLE_S = 3.0  # no input reports for this long: the controller is off or asleep
+INFO_REFRESH_S = 30.0  # ask the controller for its battery level this often
 RUMBLE_REFRESH_S = 0.5  # re-send active rumble so it never lapses on the controller
 GYRO_CUE_ON = ((0, 150), 0.08)  # (strong, weak), seconds: short light buzz = gyro aiming on
 GYRO_CUE_OFF = ((150, 0), 0.25)  # longer heavy buzz = gyro aiming off
@@ -39,16 +42,39 @@ def log(message: str) -> None:
     print(f"vader5-pad: {message}", flush=True)
 
 
-def single_instance_lock():
-    """Lock held for as long as this process runs; None if another vader5-pad already holds it."""
-    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "vader5-pad.lock")
-    lock = open(path, "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock.close()
-        return None
-    return lock
+def status_fields(pad: Controller | None, active: bool, gyro_on: bool, profile: str | None = None) -> dict:
+    """What the tray icon and settings window show about the controller."""
+    info = pad.info if pad else None
+    return {
+        "profile": profile,
+        "connected": pad is not None,
+        "active": active,
+        "connection": info.connection if info else None,
+        "firmware": info.firmware if info else None,
+        "battery": info.battery if info else None,
+        "battery_percent": info.battery_percent if info else None,
+        "charging": info.charging if info else False,
+        "gyro": gyro_on,
+    }
+
+
+class StatusReporter:
+    """Writes the status file right away when something changes, otherwise every few seconds."""
+
+    HEARTBEAT_S = 5.0
+
+    def __init__(self):
+        self._last: dict | None = None
+        self._written_at = 0.0
+
+    def update(self, now: float, fields: dict) -> None:
+        if fields == self._last and now - self._written_at < self.HEARTBEAT_S:
+            return
+        try:
+            status_file.write(fields)
+        except OSError:
+            pass  # the status file is a convenience; never let it stop the controller
+        self._last, self._written_at = fields, now
 
 
 def hide_xpad(pad: Controller) -> tuple[str | None, evdev.InputDevice | None]:
@@ -95,10 +121,13 @@ def create_virtual_devices() -> tuple[VirtualElite, VirtualKeyboardMouse]:
     return vpad, keyboard_mouse
 
 
-def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose: bool) -> None:
+def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusReporter, hide: bool, verbose: bool) -> None:
     """Serve one controller connection (cable or dongle) until it goes away."""
     watcher.check(time.monotonic())
-    gyro = GyroAim(watcher.settings.gyro)
+    games = GameWatcher()
+    games.check(time.monotonic(), watcher.settings.profiles)
+    settings = watcher.settings.for_profile(games.active)
+    gyro = GyroAim(settings.gyro)
 
     detached, grabbed = hide_xpad(pad) if hide else (None, None)
     details = f" · firmware {pad.info.firmware} · {pad.info.connection}" if pad.info else ""
@@ -107,10 +136,13 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
     elif grabbed:
         details += f" · basic Xbox pad silenced ({grabbed.path})"
     log(f"connected: {pad.path}{details} · press {gyro.settings.button} to toggle gyro aiming")
+    if games.active:
+        log(f"profile: {games.active}")
 
     vpad: VirtualElite | None = None
     keyboard_mouse: VirtualKeyboardMouse | None = None
     last_report = time.monotonic()
+    next_info = last_report + INFO_REFRESH_S  # the handshake already read the battery once
     sent_rumble, last_rumble_send = (0, 0), 0.0
     cue, cue_until = (0, 0), 0.0
     last_buttons = frozenset()
@@ -118,15 +150,22 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
         while True:
             select.select([pad, vpad] if vpad else [pad], [], [], 0.05)
             now = time.monotonic()
-            if watcher.check(now):
-                gyro.settings = watcher.settings.gyro
+            reloaded = watcher.check(now)
+            profile_changed = games.check(now, watcher.settings.profiles)
+            if profile_changed:
+                log(f"profile: {games.active}" if games.active else "profile: none (main settings)")
+            if reloaded or profile_changed:
+                settings = watcher.settings.for_profile(games.active)
+                gyro.settings = settings.gyro
+            if now >= next_info:
+                pad.request_info()  # the answer updates pad.info (battery) on a later poll
+                next_info = now + INFO_REFRESH_S
 
             states = pad.poll(0)
             if states:
                 last_report = now
                 if vpad is None:
                     vpad, keyboard_mouse = create_virtual_devices()
-                settings = watcher.settings
                 for state in states:
                     vpad.update(settings.for_games(state))
                     keyboard_mouse.hold(settings.keys_for(state.buttons))
@@ -155,6 +194,8 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, hide: bool, verbose:
                     if verbose and wanted != sent_rumble:
                         log(f"rumble: strong {wanted[0]} weak {wanted[1]}")
                     sent_rumble, last_rumble_send = wanted, now
+
+            reporter.update(now, status_fields(pad, vpad is not None, gyro.enabled, games.active))
     finally:
         for device in (vpad, keyboard_mouse):
             if device:
@@ -183,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", "-v", action="store_true", help="print button presses and rumble")
     args = parser.parse_args(argv)
 
-    lock = single_instance_lock()
+    lock = single_instance_lock("vader5-pad")
     if lock is None:
         print("vader5-pad: already running (perhaps as the service; stop it with ./vader5-service off).", file=sys.stderr)
         return 1
@@ -193,21 +234,25 @@ def main(argv: list[str] | None = None) -> int:
 
     log("started")
     watcher = ConfigWatcher(log=log)
+    reporter = StatusReporter()
+    reporter.update(time.monotonic(), status_fields(None, False, False))
     last_error = None
     try:
         while True:
             try:
                 with Controller(args.device) as pad:
                     last_error = None
-                    run_connection(pad, watcher, not args.no_hide, args.verbose)
+                    run_connection(pad, watcher, reporter, not args.no_hide, args.verbose)
             except DeviceError as err:
                 if str(err) != last_error:  # don't repeat the same message every second
                     log(f"{err}\n  Waiting for the controller...")
                     last_error = str(err)
+                reporter.update(time.monotonic(), status_fields(None, False, False))
                 time.sleep(RECONNECT_S)
     except KeyboardInterrupt:
         pass
     finally:
+        status_file.remove()
         log("stopped")
         lock.close()
     return 0

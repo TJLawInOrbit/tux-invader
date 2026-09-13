@@ -13,6 +13,9 @@ REAL_INFO_REPLY = bytes.fromhex(
 )
 
 
+REAL_DONGLE_INFO_REPLY = bytes.fromhex("5aa501010082020000000005450100714004673515000000000000102" "61f0021")
+
+
 def input_report(**fields) -> bytes:
     data = bytearray(32)
     data[0:3] = b"\x5a\xa5\xef"
@@ -47,6 +50,17 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(info.connection, "wired")
         self.assertEqual(info.firmware, "7.1.4.0")
         self.assertEqual(info.battery, "full")
+
+    def test_battery_fields(self):
+        cable = protocol.parse_info(REAL_INFO_REPLY)
+        self.assertEqual((cable.battery, cable.battery_percent, cable.charging), ("full", 100, False))
+        dongle = protocol.parse_info(REAL_DONGLE_INFO_REPLY)
+        self.assertEqual((dongle.connection, dongle.battery, dongle.battery_percent, dongle.charging),
+                         ("wireless", "100%", 100, False))
+        charging = bytearray(REAL_DONGLE_INFO_REPLY)
+        charging[11] = 0x13  # charging, level 3
+        info = protocol.parse_info(bytes(charging))
+        self.assertEqual((info.battery, info.battery_percent, info.charging), ("60% charging", 60, True))
 
     def test_input_report_values(self):
         state = protocol.parse_input(input_report(

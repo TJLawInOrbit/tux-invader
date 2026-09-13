@@ -102,6 +102,79 @@ class ParseTests(unittest.TestCase):
             self.assertEqual(config.load(os.path.join(folder, "none.toml")), config.Settings())
 
 
+class ProfileTests(unittest.TestCase):
+    TEXT = """
+        [gyro]
+        sensitivity = 15
+        ratchet = "M2"
+        [remap]
+        M1 = "key:space"
+
+        [[profile]]
+        name = "Street Fighter 6"
+        steam_app_id = 1364780
+        [profile.gyro]
+        sensitivity = 20
+        [profile.remap]
+        m1 = "m1"
+        C = "key:f"
+
+        [[profile]]
+        name = "Retro"
+        process = ["RetroArch", "retroarch.exe"]
+    """
+
+    def test_profiles_change_some_settings_and_follow_the_rest(self):
+        settings = config.parse(self.TEXT)
+        sf6 = settings.for_profile("Street Fighter 6")
+        self.assertEqual(sf6.gyro.sensitivity, 20.0)
+        self.assertEqual(sf6.gyro.ratchet, "M2")  # follows the main settings
+        self.assertEqual((sf6.target("M1"), sf6.target("C")), ("M1", "key:f"))
+        self.assertEqual(sf6.output_buttons(frozenset({"M1"})), {"M1"})  # back to itself in this game
+        self.assertEqual(settings.for_profile("Retro").gyro.sensitivity, 15.0)
+        self.assertIs(settings.for_profile(None), settings)
+        self.assertIs(settings.for_profile("No such game"), settings)
+        self.assertEqual(settings.profiles[1].processes, ("retroarch", "retroarch.exe"))
+        self.assertEqual(settings.profiles[0].overrides,
+                         {"gyro": {"sensitivity": 20.0}, "remap": {"M1": "M1", "C": "key:f"}})
+        self.assertIn("Street Fighter 6 (Steam game 1364780)", config.describe(settings))
+
+    def test_profiles_survive_saving(self):
+        settings = config.parse(self.TEXT)
+        self.assertEqual(config.parse(config.render(settings)), settings)
+
+    def test_profile_mistakes_are_explained(self):
+        cases = {
+            '[[profile]]\nsteam_app_id = 1': "needs a name",
+            '[[profile]]\nname = "A"': 'profile "A" needs steam_app_id or process',
+            '[[profile]]\nname = "A"\nsteam_app_id = "abc"': 'profile "A" steam_app_id should be a Steam app ID',
+            '[[profile]]\nname = "A"\nprocess = 5': 'profile "A" process should be a program name',
+            '[[profile]]\nname = "A"\nprocess = "a"\n[[profile]]\nname = "a"\nprocess = "b"': 'two profiles called "a"',
+            '[[profile]]\nname = "A"\nprocess = "a"\n[profile.gyro]\nsensitivity = "fast"':
+                'profile "A" [gyro] sensitivity should be a number',
+            '[[profile]]\nname = "A"\nprocess = "a"\nspeed = 2': "unknown setting 'speed' in profile \"A\"",
+            '[gyro]\nratchet = "M2"\n[[profile]]\nname = "A"\nprocess = "a"\n[profile.gyro]\nbutton = "M2"':
+                'profile "A" [gyro] ratchet and button can\'t be the same button',
+            '[profile]\nname = "A"': "should be written as [[profile]] sections",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(config.ConfigError) as caught:
+                    config.parse(text)
+                self.assertIn(message, str(caught.exception))
+
+    def test_overrides_between(self):
+        main = config.parse('[gyro]\nsensitivity = 15\n[remap]\nM1 = "key:space"')
+        effective = config.parse('[gyro]\nsensitivity = 22\ninvert_y = true\n[sticks]\nleft_deadzone = 0.1\n'
+                                 '[remap]\nC = "NONE"')
+        self.assertEqual(config.overrides_between(main, effective), {
+            "gyro": {"sensitivity": 22.0, "invert_y": True},
+            "sticks": {"left_deadzone": 0.1},
+            "remap": {"M1": "M1", "C": "NONE"},
+        })
+        self.assertEqual(config.overrides_between(main, main), {})
+
+
 class SaveTests(unittest.TestCase):
     def test_written_file_reads_back_the_same(self):
         settings = config.parse("""

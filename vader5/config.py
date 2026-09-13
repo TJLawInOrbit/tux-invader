@@ -2,7 +2,8 @@
 
 vader5-pad reads it at start and again whenever the file is saved, so changes apply within about a
 second without a restart. If the file has a mistake, the error is logged and the previous settings
-stay in use. The settings window (vader5-settings) writes it with save().
+stay in use. The settings window (vader5-settings) writes it with save(). Per-game profiles
+([[profile]] sections) only list what differs from the main settings.
 
     ./vader5-config create   write a starter file with explanations (if there isn't one)
     ./vader5-config check    show mistakes, or the settings that will be used
@@ -12,6 +13,7 @@ stay in use. The settings window (vader5-settings) writes it with save().
 from __future__ import annotations
 
 import argparse
+import copy
 import dataclasses
 import json
 import math
@@ -28,6 +30,14 @@ from .virtual_pad import BUTTON_CODES
 
 NONE = "NONE"  # remap target that turns a button off
 ALIASES = {"VIEW": "SELECT", "BACK": "SELECT", "MENU": "START", "GUIDE": "HOME"}
+SECTIONS = ("gyro", "sticks", "remap")
+GYRO_SETTINGS = {  # name in the file -> GyroSettings attribute
+    "button": "button", "ratchet": "ratchet", "sensitivity": "sensitivity",
+    "horizontal_scale": "horizontal_scale", "vertical_scale": "vertical_scale",
+    "invert_x": "invert_x", "invert_y": "invert_y", "tightening": "tightening_dps",
+}
+STICK_SETTINGS = ("left_deadzone", "right_deadzone")
+PROFILE_KEYS = {"name", "steam_app_id", "process", *SECTIONS}
 
 
 class ConfigError(ValueError):
@@ -40,12 +50,44 @@ class KeyCombo(NamedTuple):
 
 
 @dataclass
+class Profile:
+    """Settings for one game: only what differs from the main settings."""
+
+    name: str
+    steam_app_ids: tuple[int, ...] = ()
+    processes: tuple[str, ...] = ()  # lower-case program names, e.g. "game.exe"
+    overrides: dict[str, dict] = field(default_factory=dict)  # "gyro"/"sticks"/"remap" -> {setting: value}
+    settings: Settings | None = field(default=None, compare=False, repr=False)  # main settings plus overrides
+
+    def matches(self, process) -> bool:
+        """Whether a running process (games.RunningProcess) belongs to this profile's game."""
+        return process.steam_app_id in self.steam_app_ids or not set(self.processes).isdisjoint(process.names)
+
+    def describe_game(self) -> str:
+        return ", ".join([f"Steam game {app_id}" for app_id in self.steam_app_ids] + list(self.processes))
+
+
+@dataclass
 class Settings:
     gyro: GyroSettings = field(default_factory=GyroSettings)
     left_deadzone: float = 0.0  # fraction of full stick travel ignored around the center
     right_deadzone: float = 0.0
     remap: dict[str, str] = field(default_factory=dict)  # physical button -> controller button, or NONE
     key_remap: dict[str, KeyCombo] = field(default_factory=dict)  # physical button -> keys/mouse buttons
+    profiles: list[Profile] = field(default_factory=list)
+
+    def for_profile(self, name: str | None) -> Settings:
+        """The settings to use while that profile's game runs (these settings if there's no such profile)."""
+        for profile in self.profiles:
+            if profile.name == name and profile.settings is not None:
+                return profile.settings
+        return self
+
+    def target(self, name: str) -> str | None:
+        """What a button is remapped to, as written in the file; None if it isn't remapped."""
+        if name in self.key_remap:
+            return self.key_remap[name].text
+        return self.remap.get(name)
 
     def output_buttons(self, pressed: frozenset[str]) -> frozenset[str]:
         """The controller buttons games should see for these physical presses."""
@@ -114,47 +156,100 @@ def parse(text: str) -> Settings:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as err:
         raise ConfigError(f"the file isn't valid TOML: {err}") from None
-    _check_keys(data, {"gyro", "sticks", "remap"}, "the file")
+    _check_keys(data, {*SECTIONS, "profile"}, "the file")
     settings = Settings()
+    _apply_sections(settings, data, "")
+    profiles = data.get("profile", [])
+    if not isinstance(profiles, list):
+        raise ConfigError("profiles should be written as [[profile]] sections")
+    for index, table in enumerate(profiles, 1):
+        settings.profiles.append(_parse_profile(table, settings, index))
+    return settings
 
-    gyro = _table(data, "gyro")
-    _check_keys(gyro, {"button", "ratchet", "sensitivity", "horizontal_scale", "vertical_scale",
-                       "invert_x", "invert_y", "tightening"}, "[gyro]")
+
+def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
+    """Apply [gyro], [sticks] and [remap] settings on top of `settings`. Raises ConfigError."""
+    gyro = _table(tables, "gyro", prefix)
+    _check_keys(gyro, set(GYRO_SETTINGS), f"{prefix}[gyro]")
     if "button" in gyro:
-        settings.gyro.button = _button(gyro["button"], "[gyro] button", protocol.BUTTON_NAMES)
+        settings.gyro.button = _button(gyro["button"], f"{prefix}[gyro] button", protocol.BUTTON_NAMES)
     if "ratchet" in gyro:
-        settings.gyro.ratchet = _button(gyro["ratchet"], "[gyro] ratchet", (*protocol.BUTTON_NAMES, NONE))
+        settings.gyro.ratchet = _button(gyro["ratchet"], f"{prefix}[gyro] ratchet", (*protocol.BUTTON_NAMES, NONE))
     if settings.gyro.ratchet == "TURBO":
-        raise ConfigError("[gyro] ratchet can't be TURBO: Turbo only sends a short pulse, so it can't be held")
+        raise ConfigError(f"{prefix}[gyro] ratchet can't be TURBO: Turbo only sends a short pulse, so it can't be held")
     if settings.gyro.ratchet != NONE and settings.gyro.ratchet == settings.gyro.button:
-        raise ConfigError("[gyro] ratchet and button can't be the same button")
+        raise ConfigError(f"{prefix}[gyro] ratchet and button can't be the same button")
     if "sensitivity" in gyro:
-        settings.gyro.sensitivity = _number(gyro["sensitivity"], "[gyro] sensitivity", 0.0, 1000.0)
+        settings.gyro.sensitivity = _number(gyro["sensitivity"], f"{prefix}[gyro] sensitivity", 0.0, 1000.0)
     for key in ("horizontal_scale", "vertical_scale"):
         if key in gyro:
-            setattr(settings.gyro, key, _number(gyro[key], f"[gyro] {key}", 0.0, 10.0))
+            setattr(settings.gyro, key, _number(gyro[key], f"{prefix}[gyro] {key}", 0.0, 10.0))
     for key in ("invert_x", "invert_y"):
         if key in gyro:
-            setattr(settings.gyro, key, _boolean(gyro[key], f"[gyro] {key}"))
+            setattr(settings.gyro, key, _boolean(gyro[key], f"{prefix}[gyro] {key}"))
     if "tightening" in gyro:
-        settings.gyro.tightening_dps = _number(gyro["tightening"], "[gyro] tightening", 0.0, 20.0)
+        settings.gyro.tightening_dps = _number(gyro["tightening"], f"{prefix}[gyro] tightening", 0.0, 20.0)
 
-    sticks = _table(data, "sticks")
-    _check_keys(sticks, {"left_deadzone", "right_deadzone"}, "[sticks]")
-    for key in ("left_deadzone", "right_deadzone"):
+    sticks = _table(tables, "sticks", prefix)
+    _check_keys(sticks, set(STICK_SETTINGS), f"{prefix}[sticks]")
+    for key in STICK_SETTINGS:
         if key in sticks:
-            setattr(settings, key, _number(sticks[key], f"[sticks] {key}", 0.0, 0.9))
+            setattr(settings, key, _number(sticks[key], f"{prefix}[sticks] {key}", 0.0, 0.9))
 
-    for source, target in _table(data, "remap").items():
-        name = _button(source, "[remap]", protocol.BUTTON_NAMES)
-        where = f"[remap] {source}"
+    for source, target in _table(tables, "remap", prefix).items():
+        name = _button(source, f"{prefix}[remap]", protocol.BUTTON_NAMES)
+        where = f"{prefix}[remap] {source}"
         if isinstance(target, str) and ":" in target:
             settings.key_remap[name] = key_combo(target, where)
             settings.remap.pop(name, None)
         else:
             settings.remap[name] = _button(target, where, (*BUTTON_CODES, NONE))
             settings.key_remap.pop(name, None)
-    return settings
+
+
+def _parse_profile(table, main: Settings, index: int) -> Profile:
+    if not isinstance(table, dict):
+        raise ConfigError(f"profile {index} should be a [[profile]] section")
+    name = table.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ConfigError(f'profile {index} needs a name, like name = "Street Fighter 6"')
+    name = name.strip()
+    where = f'profile "{name}"'
+    _check_keys(table, PROFILE_KEYS, where)
+    if any(existing.name.lower() == name.lower() for existing in main.profiles):
+        raise ConfigError(f'there are two profiles called "{name}"')
+    app_ids = tuple(_int_list(table.get("steam_app_id", []), f"{where} steam_app_id"))
+    processes = tuple(process.lower() for process in _text_list(table.get("process", []), f"{where} process"))
+    if not app_ids and not processes:
+        raise ConfigError(f"{where} needs steam_app_id or process, so it knows which game it's for")
+    effective = copy.deepcopy(dataclasses.replace(main, profiles=[]))
+    _apply_sections(effective, table, f"{where} ")
+    return Profile(name, app_ids, processes, _overrides_as_written(table, effective), effective)
+
+
+def _overrides_as_written(tables: dict, effective: Settings) -> dict[str, dict]:
+    """A profile's own settings in their tidy form (checked values, standard names), for writing back."""
+    gyro = {key: getattr(effective.gyro, GYRO_SETTINGS[key]) for key in _table(tables, "gyro")}
+    sticks = {key: getattr(effective, key) for key in _table(tables, "sticks")}
+    remap = {}
+    for source in _table(tables, "remap"):
+        name = ALIASES.get(source.strip().upper(), source.strip().upper())
+        remap[name] = effective.target(name)
+    return {section: values for section, values in (("gyro", gyro), ("sticks", sticks), ("remap", remap)) if values}
+
+
+def overrides_between(main: Settings, effective: Settings) -> dict[str, dict]:
+    """The profile settings that turn the main settings into `effective`."""
+    gyro = {key: getattr(effective.gyro, attr) for key, attr in GYRO_SETTINGS.items()
+            if getattr(effective.gyro, attr) != getattr(main.gyro, attr)}
+    sticks = {key: getattr(effective, key) for key in STICK_SETTINGS if getattr(effective, key) != getattr(main, key)}
+    remap = {}
+    for name in protocol.BUTTON_NAMES:
+        wanted = effective.target(name)
+        if wanted != main.target(name):
+            # "back to itself" has to be spelled out, or the main remap would still apply
+            remap[name] = wanted if wanted is not None else (name if name in BUTTON_CODES else NONE)
+    return {section: values for section, values in (("gyro", gyro), ("sticks", sticks), ("remap", remap)) if values}
 
 
 def render(settings: Settings) -> str:
@@ -202,10 +297,32 @@ def render(settings: Settings) -> str:
         '# right, f1-f24, and everything else in /usr/include/linux/input-event-codes.h without "KEY_".',
     ]
     for name in protocol.BUTTON_NAMES:
-        if name in settings.key_remap:
-            lines.append(f"{name} = {_quote(settings.key_remap[name].text)}")
-        elif name in settings.remap:
-            lines.append(f"{name} = {_quote(settings.remap[name])}")
+        if settings.target(name) is not None:
+            lines.append(f"{name} = {_quote(settings.target(name))}")
+    lines += [
+        "",
+        "# Per-game profiles: settings that switch automatically while a game runs. A profile only lists",
+        "# what's different from the settings above; everything else follows them. For example:",
+        "#",
+        "#   [[profile]]",
+        '#   name = "Street Fighter 6"',
+        '#   steam_app_id = 1364780      # a Steam game; for other games use process = "game.exe"',
+        "#   [profile.gyro]",
+        "#   sensitivity = 20.0",
+        "#   [profile.remap]",
+        '#   M1 = "M1"                   # M1 sends itself in this game, whatever [remap] says',
+    ]
+    for profile in settings.profiles:
+        lines += ["", "[[profile]]", f"name = {_quote(profile.name)}"]
+        if profile.steam_app_ids:
+            lines.append(f"steam_app_id = {_toml_one_or_list(profile.steam_app_ids)}")
+        if profile.processes:
+            lines.append(f"process = {_toml_one_or_list(profile.processes)}")
+        for section in SECTIONS:
+            values = profile.overrides.get(section)
+            if values:
+                lines.append(f"[profile.{section}]")
+                lines += [f"{key} = {_toml_value(value)}" for key, value in values.items()]
     return "\n".join(lines) + "\n"
 
 
@@ -226,13 +343,27 @@ def save(settings: Settings, path: str | None = None) -> str:
 
 
 def _quote(text: str) -> str:
-    return json.dumps(text)  # a valid TOML basic string for our button names and key combinations
+    return json.dumps(text)  # a valid TOML basic string for our button names, key combinations and names
 
 
-def _table(data: dict, name: str) -> dict:
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, int):
+        return str(value)
+    return _quote(value)
+
+
+def _toml_one_or_list(values) -> str:
+    return _toml_value(values[0]) if len(values) == 1 else "[" + ", ".join(_toml_value(v) for v in values) + "]"
+
+
+def _table(data: dict, name: str, prefix: str = "") -> dict:
     value = data.get(name, {})
     if not isinstance(value, dict):
-        raise ConfigError(f"'{name}' should be a section like [{name}]")
+        raise ConfigError(f"'{prefix}{name}' should be a section like [{name}]")
     return value
 
 
@@ -294,6 +425,20 @@ def _boolean(value, where: str) -> bool:
     return value
 
 
+def _int_list(value, where: str) -> list[int]:
+    values = value if isinstance(value, list) else [value]
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in values):
+        raise ConfigError(f"{where} should be a Steam app ID number (or a list of them), like 1364780")
+    return values
+
+
+def _text_list(value, where: str) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    if not all(isinstance(v, str) and v.strip() for v in values):
+        raise ConfigError(f'{where} should be a program name (or a list of them), like "game.exe"')
+    return [v.strip() for v in values]
+
+
 STARTER = render(Settings())
 
 
@@ -339,12 +484,14 @@ def describe(settings: Settings) -> str:
     gyro = settings.gyro
     remaps = [f"{source} -> {target}" for source, target in settings.remap.items()]
     remaps += [f"{source} -> {combo.text}" for source, combo in settings.key_remap.items()]
+    profiles = [f"{profile.name} ({profile.describe_game()})" for profile in settings.profiles]
     return "\n".join([
         f"gyro: toggle {gyro.button}, ratchet {gyro.ratchet}, sensitivity {gyro.sensitivity:g} "
         f"(horizontal x{gyro.horizontal_scale:g}, vertical x{gyro.vertical_scale:g}), invert x {str(gyro.invert_x).lower()}, "
         f"invert y {str(gyro.invert_y).lower()}, tightening {gyro.tightening_dps:g}",
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",
         "remap: " + (", ".join(sorted(remaps)) or "none"),
+        "profiles: " + ("; ".join(profiles) or "none"),
     ])
 
 

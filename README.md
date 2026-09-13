@@ -72,6 +72,13 @@ The easiest way is the settings window:
 ./vader5-settings
 ```
 
+To open it from your app menu instead of a terminal, run `./vader5-desktop install` once. It adds
+"Vader 5 Pro Settings" and "Vader 5 Pro Tray" to the app menu and starts the tray icon at login
+(remove it all with `./vader5-desktop uninstall`).
+
+Only one settings window opens at a time: launching it again (from the tray or the app menu) brings
+the open window to the front.
+
 It shows whether the controller is connected and the background service is running (with Start,
 Stop and "start at login"), and has tabs for the gyro, the sticks and button remaps. Save applies
 the changes within about a second. It writes the settings file in its standard layout, so comments
@@ -102,6 +109,41 @@ what's wrong, and the previous settings stay in use.
   Key names are like `a`, `1`, `space`, `enter`, `esc`, `tab`, `ctrl`, `shift`, `alt`, `super`,
   `f1` and `f13`; the full list is in `/usr/include/linux/input-event-codes.h`, without `KEY_`.
   Keys are released when you let go of the button, and also if the controller turns off.
+
+### Game profiles
+
+Different settings for different games, switched automatically while the game runs. In the settings
+window, click **Add game profile…**, pick one of your installed Steam games (or type the program
+name of a non-Steam game), and change the settings you want for that game. Everything you don't
+change follows the main settings, so later changes to the main settings still apply to it. The tray
+icon, the settings window and the service log show which profile is in use.
+
+Steam games are recognized by the Steam app ID that Steam gives every game it starts (Proton games
+included); other games by their program name, as shown in System Monitor. If two games with
+profiles run at once, the one started most recently wins. In the settings file a profile looks like:
+
+```toml
+[[profile]]
+name = "Street Fighter 6"
+steam_app_id = 1364780      # or: process = "game.exe"
+[profile.gyro]
+sensitivity = 20.0
+[profile.remap]
+M1 = "M1"                   # M1 sends itself in this game, whatever [remap] says
+```
+
+### Tray icon
+
+`./vader5-tray` puts a controller icon in the system tray; after `./vader5-desktop install` it also
+starts at login. The icon is in color while the controller is on and grey while it's off or the
+background service isn't running. Hover over it for connection, battery and gyro status, click it
+to open the settings, and right-click for a menu (status, open settings, start or stop the
+background service, quit). When the battery drops to 20% or less and isn't charging, it shows one
+warning, and warns again only after the battery has been charged. The battery level comes from the
+controller in 20% steps.
+
+The tray and settings window read a small status file that `vader5-pad` keeps up to date
+(`$XDG_RUNTIME_DIR/vader5/status.json`), so they never talk to the controller directly.
 
 ### Start automatically
 
@@ -174,6 +216,10 @@ python3 -m unittest discover tests
 | `vader5/keyboard_mouse.py` | Virtual keyboard and mouse (uinput): gyro movement, keys for remapped buttons |
 | `vader5/config.py`, `vader5-config` | Settings file: loading, checking, writing, reloading on save |
 | `vader5/settings_window.py`, `vader5-settings` | Settings window (PyQt6) |
+| `vader5/tray.py`, `vader5-tray` | Tray icon: status, battery warning (PyQt6) |
+| `vader5/status.py` | Status file shared by the service, tray and settings window |
+| `vader5/games.py` | Finds installed Steam games and which profile's game is running |
+| `vader5-desktop` | Adds the app menu entries and starts the tray icon at login |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |
 

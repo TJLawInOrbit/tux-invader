@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -32,6 +33,30 @@ class SettingsWindowTests(unittest.TestCase):
         self.window.save_button.setEnabled(False)  # don't ask about unsaved changes
         self.window.close()
         self.folder.cleanup()
+
+    def test_controller_summary(self):
+        summary = self.module.controller_summary
+        self.assertEqual(summary(None, True), "Connected")
+        self.assertEqual(summary(None, False), self.module.NOT_CONNECTED)
+        self.assertEqual(summary({"connected": False}, False), self.module.NOT_CONNECTED)
+        self.assertEqual(summary({"connected": True, "connection": "wireless", "battery": "80%",
+                                  "battery_percent": 80, "gyro": True}, False),
+                         "Connected (wireless) · battery 80% · gyro aiming on")
+        self.assertIn("profile Street Fighter 6", summary({"connected": True, "profile": "Street Fighter 6"}, False))
+
+    def test_second_launch_brings_the_open_window_back(self):
+        path = os.path.join(self.folder.name, "settings.sock")
+        instance = self.module.SingleInstance(self.window, path)
+        self.window.hide()
+        self.assertTrue(self.module.forward_to_running_window(path, wait_s=1.0))
+        for _ in range(50):
+            self.app.processEvents()
+            if self.window.isVisible():
+                break
+            time.sleep(0.02)
+        self.assertTrue(self.window.isVisible())
+        instance.close()
+        self.assertFalse(self.module.forward_to_running_window(path, wait_s=0.2))  # nothing open any more
 
     def test_every_button_is_listed(self):
         self.assertEqual(set(self.module.UI_ORDER), set(protocol.BUTTON_NAMES))
@@ -86,6 +111,39 @@ class SettingsWindowTests(unittest.TestCase):
         w.gyro_button.setCurrentIndex(w.gyro_button.findData("M2"))
         self.assertFalse(w.save_button.isEnabled())
         self.assertIn("can't be the same button", w.message.text())
+
+    def test_game_profiles(self):
+        w = self.window
+        self.assertIsNone(w.add_profile("Street Fighter 6", steam_app_id=1364780))
+        self.assertEqual(w.current, 0)
+        self.assertEqual(w.sensitivity.value(), 15.0)  # a new profile starts out like the main settings
+        self.assertTrue(w.delete_profile_button.isEnabled())
+        w.sensitivity.setValue(25.0)
+        w.remap_rows["M1"].combo.setCurrentIndex(0)  # M1 back to itself in this game
+
+        w.profile_select.setCurrentIndex(0)  # back to the main settings
+        self.assertEqual(w.current, -1)
+        self.assertEqual(w.sensitivity.value(), 15.0)
+        self.assertEqual(w.remap_rows["M1"].edit.text(), "space")
+        self.assertIsNotNone(w.add_profile("street fighter 6", process="sf6.exe"))  # name already used
+        self.assertIsNotNone(w.add_profile("Other"))  # no game chosen
+
+        self.assertTrue(w.save())
+        saved = config.load(self.path)
+        self.assertEqual(len(saved.profiles), 1)
+        profile = saved.profiles[0]
+        self.assertEqual((profile.name, profile.steam_app_ids), ("Street Fighter 6", (1364780,)))
+        self.assertEqual(profile.overrides, {"gyro": {"sensitivity": 25.0}, "remap": {"M1": "M1"}})
+        self.assertEqual(saved.for_profile("Street Fighter 6").gyro.horizontal_scale, 1.25)  # follows main
+
+        w.profile_select.setCurrentIndex(1)
+        self.assertEqual(w.sensitivity.value(), 25.0)
+        w.restore_defaults()  # "Match main settings"
+        self.assertEqual(w.sensitivity.value(), 15.0)
+        w.delete_profile(confirm=False)
+        self.assertEqual(w.current, -1)
+        self.assertTrue(w.save())
+        self.assertEqual(config.load(self.path).profiles, [])
 
     def test_revert_and_defaults(self):
         w = self.window
