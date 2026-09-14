@@ -20,6 +20,7 @@ from PyQt6.QtCore import QTimer, qEnvironmentVariable
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QStyle, QSystemTrayIcon
 
+from . import APP_NAME
 from . import status as status_file
 
 LOW_BATTERY_PERCENT = 20
@@ -40,10 +41,10 @@ class TrayView:
 def describe(status: dict | None) -> TrayView:
     """What the tray shows for a status (None = vader5-pad isn't running)."""
     if status is None:
-        return TrayView("Vader 5 Pro: background service isn't running",
+        return TrayView(f"{APP_NAME}: background service isn't running",
                         ["Background service: not running"], False, False)
     if not status.get("connected"):
-        return TrayView("Vader 5 Pro: controller not connected",
+        return TrayView(f"{APP_NAME}: controller not connected",
                         ["Controller: not connected", "Background service: running"], False, True)
     connection = status.get("connection") or "connected"
     battery = status_file.battery_text(status)
@@ -56,7 +57,7 @@ def describe(status: dict | None) -> TrayView:
     if status.get("profile"):
         lines.append(f"Profile: {status['profile']}")
     summary = [connection] + ([f"battery {battery}"] if battery else []) + [f"gyro {gyro}"]
-    return TrayView("Vader 5 Pro: " + " · ".join(summary), lines, active, True)
+    return TrayView(f"{APP_NAME}: " + " · ".join(summary), lines, active, True)
 
 
 class LowBatteryWarner:
@@ -158,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         print("vader5-tray: already running", file=sys.stderr)
         return 1
     app = QApplication([sys.argv[0], *(sys.argv[1:] if argv is None else argv)])
-    app.setApplicationName("Vader 5 Pro Tray")
+    app.setApplicationName(APP_NAME)
     app.setDesktopFileName("vader5-tray")
     app.setQuitOnLastWindowClosed(False)
     signal.signal(signal.SIGTERM, lambda *_: app.quit())

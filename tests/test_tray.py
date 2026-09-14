@@ -39,7 +39,7 @@ class DescribeTests(unittest.TestCase):
         view = self.tray.describe(connected(gyro=True))
         self.assertTrue(view.active)
         self.assertEqual(view.lines, ["Controller: connected (wireless)", "Battery: 80%", "Gyro aiming: on"])
-        self.assertEqual(view.tooltip, "Vader 5 Pro: wireless · battery 80% · gyro on")
+        self.assertEqual(view.tooltip, "The Tuxedo InVader: wireless · battery 80% · gyro on")
 
     def test_idle_and_charging(self):
         view = self.tray.describe(connected(active=False, connection="wired", charging=True, battery_percent=60))

@@ -25,7 +25,7 @@ write_unit() {
     # systemd treats % as a specifier, so double it in the path.
     cat > "$UNIT_FILE" <<EOF
 [Unit]
-Description=Flydigi Vader 5 Pro as a virtual Xbox Elite controller
+Description=The Tuxedo InVader: Flydigi Vader 5 Pro as a virtual Xbox Elite controller
 
 [Service]
 ExecStart="${PROJECT_DIR//%/%%}/vader5-pad"

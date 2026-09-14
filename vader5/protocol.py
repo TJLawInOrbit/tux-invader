@@ -195,3 +195,25 @@ def parse_info(data: bytes) -> ControllerInfo | None:
         battery, percent = "unknown", None
     model = MODELS.get(data[5], f"unknown model {data[5]}")
     return ControllerInfo(data[5], model, connection, firmware, battery, percent, status == 1)
+
+
+TESTED_FIRMWARE = "7.1.4.0"
+SDL_NATIVE_FIRMWARE = "7.1.4.1"  # SDL's own Vader 5 Pro driver needs at least this (SDL_hidapi_flydigi.c)
+
+
+def firmware_version(text: str) -> tuple[int, ...] | None:
+    try:
+        return tuple(int(part) for part in text.split("."))
+    except ValueError:
+        return None
+
+
+def firmware_note(firmware: str) -> str | None:
+    """A warning for firmware this app hasn't been tested with; None for the tested version."""
+    if firmware == TESTED_FIRMWARE:
+        return None
+    version = firmware_version(firmware)
+    if version is not None and version >= firmware_version(SDL_NATIVE_FIRMWARE):
+        return (f"newer than the tested {TESTED_FIRMWARE}: games that use SDL (and maybe Steam) "
+                "may also take over the controller")
+    return f"not tested with this app (tested: {TESTED_FIRMWARE})"

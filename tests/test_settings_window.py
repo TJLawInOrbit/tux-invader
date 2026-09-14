@@ -44,6 +44,28 @@ class SettingsWindowTests(unittest.TestCase):
                          "Connected (wireless) · battery 80% · gyro aiming on")
         self.assertIn("profile Street Fighter 6", summary({"connected": True, "profile": "Street Fighter 6"}, False))
 
+    def test_firmware_line(self):
+        text = self.module.firmware_text
+        self.assertEqual(text("7.1.4.0", True), ("Firmware: 7.1.4.0 · tested with this app", False))
+        self.assertEqual(text("7.1.4.0", False)[0], "Firmware: 7.1.4.0 (last connected controller) · tested with this app")
+        newer, warning = text("7.1.4.1", True)
+        self.assertTrue(warning)
+        self.assertIn("take over the controller", newer)
+        self.assertFalse(text(None, False)[1])
+        self.assertEqual(self.window.windowTitle(), "The Tuxedo InVader")
+        self.assertTrue(self.window.firmware_label.text().startswith("Firmware:"))
+
+    def test_opening_the_app_starts_the_tray_icon(self):
+        calls = []
+        self.assertTrue(self.module.start_tray(spawn=lambda command, **options: calls.append((command, options))))
+        self.assertEqual(calls[0][0], [self.module.TRAY_PROGRAM])
+        self.assertTrue(calls[0][1]["start_new_session"])  # keeps running after the window closes
+        self.assertTrue(os.path.exists(self.module.TRAY_PROGRAM))
+
+        def missing(command, **options):
+            raise FileNotFoundError(command[0])
+        self.assertFalse(self.module.start_tray(spawn=missing))
+
     def test_second_launch_brings_the_open_window_back(self):
         path = os.path.join(self.folder.name, "settings.sock")
         instance = self.module.SingleInstance(self.window, path)

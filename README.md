@@ -1,4 +1,6 @@
-# Vader 5 Pro on Linux
+# The Tuxedo InVader
+
+Linux control settings for the Flydigi Vader 5 Pro.
 
 A small userspace app for the Flydigi Vader 5 Pro. It gets the back paddles, extra buttons, gyro,
 accelerometer and rumble working on Linux, without Flydigi software, kernel modules or driver changes.
@@ -82,14 +84,14 @@ The easiest way is the settings window:
 ```
 
 To open it from your app menu instead of a terminal, run `./vader5-desktop install` once. It adds
-"Vader 5 Pro Settings" and "Vader 5 Pro Tray" to the app menu and starts the tray icon at login
-(remove it all with `./vader5-desktop uninstall`).
+"The Tuxedo InVader" to the app menu and starts the tray icon at login (remove it all with
+`./vader5-desktop uninstall`). Opening the app also starts the tray icon if it isn't running yet.
 
 Only one settings window opens at a time: launching it again (from the tray or the app menu) brings
 the open window to the front.
 
-It shows whether the controller is connected and the background service is running (with Start,
-Stop and "start at login"), and has tabs for the gyro, the sticks, button remaps and the LED strip.
+At the top it shows the controller's firmware version (see **Firmware**). It also shows whether the
+controller is connected and the background service is running (with Start, Stop and "start at login"), and has tabs for the gyro, the sticks, button remaps and the LED strip.
 Save applies the changes within about a second. It writes the settings file in its standard layout, so comments
 you added to the file by hand aren't kept; the previous file is saved as `config.toml.bak`.
 
@@ -163,7 +165,7 @@ M1 = "M1"                   # M1 sends itself in this game, whatever [remap] say
 ### Tray icon
 
 `./vader5-tray` puts a controller icon in the system tray; after `./vader5-desktop install` it also
-starts at login. The icon is in color while the controller is on and grey while it's off or the
+starts at login, and opening the settings window starts it too. The icon is in color while the controller is on and grey while it's off or the
 background service isn't running. Hover over it for connection, battery and gyro status, click it
 to open the settings, and right-click for a menu (status, open settings, start or stop the
 background service, quit). When the battery drops to 20% or less and isn't charging, it shows one
@@ -201,6 +203,23 @@ off the controller while it runs, so Steam and games list only the Xbox Elite co
 Without the rule, the basic pad is only silenced: it sends nothing, but Steam and SDL games still
 list it. For a Steam game you can hide it from the game with this launch option:
 `SDL_GAMECONTROLLER_IGNORE_DEVICES=0x37d7/0x2401 %command%`
+
+### Firmware
+
+The app was built and tested with controller firmware **7.1.4.0**. The settings window and the service
+log show the connected controller's firmware and say when it's a version the app hasn't been tested
+with. Updating the firmware with Flydigi's software can't be undone from Linux, and may change things:
+
+- From 7.1.4.1, SDL (used by many games, and maybe Steam) has its own driver for this controller, so it
+  may take over the controller while this app runs: a second controller shows up, or input cuts out.
+- Buttons, gyro or LED data could move. `./vader5-viewer` shows what the controller sends.
+
+Real reports from a 7.1.4.0 controller, over the cable and over the dongle (every button, full stick
+and trigger travel, resting and moving gyro, the factory LED data), are kept in `tests/data`, and
+`tests/test_firmware_7140.py` checks them. Support for other firmware is added alongside, so 7.1.4.0 controllers keep working.
+
+The app's commands (`vader5-pad`, `vader5-settings`, ...), its settings folder (`~/.config/vader5`)
+and its virtual devices keep their original names, so existing setups keep working.
 
 ## Requirements
 
@@ -248,7 +267,7 @@ python3 -m unittest discover tests
 | `vader5/status.py` | Status file shared by the service, tray and settings window |
 | `vader5/games.py` | Finds installed Steam games and which profile's game is running |
 | `vader5/led.py` | LED strip effects: builds the controller's LED data |
-| `vader5-desktop` | Adds the app menu entries and starts the tray icon at login |
+| `vader5-desktop` | Adds the app menu entry and starts the tray icon at login |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |
 
@@ -298,7 +317,7 @@ Done:
 3. Starts automatically at login as a systemd user service, and reconnects on its own
 4. Gyro aiming as a mouse: toggle button, ratchet (hold to pause), left/right and up/down speed
 5. Settings file and settings window; keyboard keys and mouse buttons in remaps
-6. Tray icon, app menu entries and per-game profiles; paddles match Steam's P1-P4 (v0.2)
+6. Tray icon, app menu entry and per-game profiles; paddles match Steam's P1-P4 (v0.2)
 7. LED strip control, including a flash on button press (v0.3)
 
 Next:

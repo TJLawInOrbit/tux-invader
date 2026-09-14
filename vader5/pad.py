@@ -22,6 +22,7 @@ import time
 import evdev
 
 from . import protocol
+from .protocol import firmware_note
 from . import status as status_file
 from .config import ConfigWatcher, config_path
 from .device import Controller, DeviceError, detach_xpad, find_xpad_event, reattach_xpad
@@ -189,7 +190,10 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
     gyro = GyroAim(settings.gyro)
 
     detached, grabbed = hide_xpad(pad) if hide else (None, None)
-    details = f" · firmware {pad.info.firmware} · {pad.info.connection}" if pad.info else ""
+    details = ""
+    if pad.info:
+        note = firmware_note(pad.info.firmware)
+        details = f" · firmware {pad.info.firmware}{f' ({note})' if note else ''} · {pad.info.connection}"
     if detached:
         details += " · basic Xbox pad removed"
     elif grabbed:

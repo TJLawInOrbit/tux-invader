@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Add Vader 5 Pro to your desktop: the settings window and tray icon in the app menu, and the tray
-# icon at every login. No root needed; "uninstall" removes it all again.
+# Add The Tuxedo InVader to your desktop: one app menu entry (it opens the settings window and the tray
+# icon), and the tray icon at every login. No root needed; "uninstall" removes it all again.
 set -euo pipefail
 
 PROJECT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
@@ -14,8 +14,8 @@ usage() {
     cat <<EOF
 Usage: $0 <command>
 
-  install    add "Vader 5 Pro Settings" and "Vader 5 Pro Tray" to your app menu, and start the
-             tray icon now and every time you log in
+  install    add "The Tuxedo InVader" to your app menu (it opens the settings window and the tray
+             icon), and start the tray icon now and every time you log in
   uninstall  remove them and close the tray icon
 EOF
 }
@@ -46,23 +46,21 @@ refresh_menu() {
 
 case "${1:-}" in
     install)
-        write_entry "$SETTINGS_ENTRY" vader5-settings "Vader 5 Pro Settings" \
-            "Gyro, stick and button settings for the Flydigi Vader 5 Pro" \
-            "$(printf 'GenericName=Controller Settings\nCategories=Settings;HardwareSettings;\nKeywords=flydigi;vader;controller;gamepad;gyro;\nStartupWMClass=vader5-settings')"
-        tray_extra="$(printf 'Categories=Utility;\nKeywords=flydigi;vader;controller;gamepad;battery;')"
-        write_entry "$TRAY_ENTRY" vader5-tray "Vader 5 Pro Tray" \
-            "Battery and status of the Flydigi Vader 5 Pro in the system tray" "$tray_extra"
-        write_entry "$TRAY_AUTOSTART" vader5-tray "Vader 5 Pro Tray" \
-            "Battery and status of the Flydigi Vader 5 Pro in the system tray" "$tray_extra"
+        write_entry "$SETTINGS_ENTRY" vader5-settings "The Tuxedo InVader" \
+            "Linux control settings for the Flydigi Vader 5 Pro" \
+            "$(printf 'GenericName=Controller Settings\nCategories=Game;Utility;\nKeywords=tuxedo;invader;flydigi;vader;controller;gamepad;gyro;\nStartupWMClass=vader5-settings')"
+        rm -f "$TRAY_ENTRY"  # older versions had a second menu entry just for the tray icon
+        write_entry "$TRAY_AUTOSTART" vader5-tray "The Tuxedo InVader" \
+            "Battery and status of the Flydigi Vader 5 Pro in the system tray" ""
         refresh_menu
         setsid -f "$PROJECT_DIR/vader5-tray" >/dev/null 2>&1 </dev/null || true  # does nothing if already running
-        echo "Added \"Vader 5 Pro Settings\" and \"Vader 5 Pro Tray\" to your app menu; the tray icon starts at login."
+        echo "Added \"The Tuxedo InVader\" to your app menu (it opens the settings window and the tray icon); the tray icon also starts at login."
         ;;
     uninstall)
         rm -f "$SETTINGS_ENTRY" "$TRAY_ENTRY" "$TRAY_AUTOSTART"
         refresh_menu
         pkill -f -- "vader5-tray" 2>/dev/null || true
-        echo "Removed the Vader 5 Pro menu entries and the tray icon."
+        echo "Removed The Tuxedo InVader menu entries and the tray icon."
         ;;
     -h|--help) usage ;;
     *) usage; exit 1 ;;

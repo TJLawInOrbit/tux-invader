@@ -1,4 +1,4 @@
-"""Settings window for the Vader 5 Pro app.
+"""Settings window for The Tuxedo InVader, the Vader 5 Pro app.
 
     ./vader5-settings
 
@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QSlider, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from . import config
+from . import APP_NAME, TAGLINE, config, protocol
 from . import led as lighting
 from . import status as status_file
 from .config import NONE, ConfigError, KeyCombo, Profile, Settings
@@ -33,6 +33,7 @@ from .games import installed_steam_games
 from .virtual_pad import BUTTON_CODES
 
 SERVICE = "vader5-pad.service"
+TRAY_PROGRAM = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "vader5-tray")
 KEY = "__keyboard__"  # combo box choice that uses the text field
 
 UI_ORDER = (
@@ -51,7 +52,17 @@ MOUSE_BUTTONS = ("left", "right", "middle", "back", "forward")
 ERROR_STYLE = "color: #e5534b;"
 OK_STYLE = "color: #57ab5a;"
 HINT_STYLE = "color: gray;"
+WARNING_STYLE = "color: #c69026;"
 NOT_CONNECTED = "Not connected: turn the controller on, or plug in the cable or dongle"
+
+
+def firmware_text(firmware: str | None, connected: bool) -> tuple[str, bool]:
+    """The firmware line at the top of the window, and whether it's a warning."""
+    if not firmware:
+        return "Firmware: shown once the controller is connected and the background service is running", False
+    text = f"Firmware: {firmware}" + ("" if connected else " (last connected controller)")
+    note = protocol.firmware_note(firmware)
+    return (f"{text} · {note}", True) if note else (f"{text} · tested with this app", False)
 
 
 def controller_summary(current: dict | None, plugged_in: bool) -> str:
@@ -310,11 +321,13 @@ class SettingsWindow(QMainWindow):
         self.profiles: list[Profile] = []  # each profile's own settings (overrides)
         self.current = -1  # -1 = editing the main settings, else the index of the profile being edited
         self._steam_games: dict[int, str] | None = None
-        self.setWindowTitle("Vader 5 Pro Settings")
-        self.resize(780, 820)
+        self._last_firmware: str | None = None
+        self.setWindowTitle(APP_NAME)
+        self.resize(780, 880)
 
         central = QWidget()
         layout = QVBoxLayout(central)
+        layout.addWidget(self._build_header())
         layout.addWidget(self._build_status())
         layout.addLayout(self._build_profile_bar())
         self.profile_hint = hint("")
@@ -353,6 +366,22 @@ class SettingsWindow(QMainWindow):
         self.refresh_status()
 
     # ------------------------------------------------------------------ building the window
+
+    def _build_header(self) -> QWidget:
+        header = QWidget()
+        column = QVBoxLayout(header)
+        column.setContentsMargins(0, 0, 0, 4)
+        name = QLabel(APP_NAME)
+        font = name.font()
+        font.setPointSizeF(font.pointSizeF() * 1.6)
+        font.setBold(True)
+        name.setFont(font)
+        self.firmware_label = QLabel()
+        self.firmware_label.setWordWrap(True)
+        column.addWidget(name)
+        column.addWidget(self.firmware_label)
+        column.addWidget(hint(TAGLINE))
+        return header
 
     def _build_status(self) -> QGroupBox:
         box = QGroupBox("Status")
@@ -734,6 +763,12 @@ class SettingsWindow(QMainWindow):
 
     def refresh_status(self) -> None:
         current = status_file.read()
+        connected = bool(current and current.get("connected") and current.get("firmware"))
+        if connected:
+            self._last_firmware = current["firmware"]
+        text, warning = firmware_text(self._last_firmware, connected)
+        self.firmware_label.setText(text)
+        self.firmware_label.setStyleSheet(WARNING_STYLE if warning else "")
         plugged_in = bool(find_config_hidraws()) if current is None else False
         self.controller_status.setText(controller_summary(current, plugged_in))
         if not self.manage_service:
@@ -837,10 +872,21 @@ class SingleInstance:
         self.server.close()
 
 
+def start_tray(program: str = TRAY_PROGRAM, spawn=subprocess.Popen) -> bool:
+    """Start the tray icon along with the window. If it's already running, the new one quits by itself."""
+    try:
+        spawn([program], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              start_new_session=True)
+    except OSError:
+        return False
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     app = QApplication([sys.argv[0], *(sys.argv[1:] if argv is None else argv)])
-    app.setApplicationName("Vader 5 Pro Settings")
+    app.setApplicationName(APP_NAME)
     app.setDesktopFileName("vader5-settings")
+    start_tray()
     lock = status_file.single_instance_lock("vader5-settings")
     if lock is None:  # already open: bring that window to the front instead
         return 0 if forward_to_running_window(instance_socket_path()) else 1

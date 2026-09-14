@@ -106,5 +106,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(protocol.strip_report_id(b"\x5a\xa5\xef"), b"\x5a\xa5\xef")
 
 
+class FirmwareTests(unittest.TestCase):
+    def test_firmware_notes(self):
+        self.assertIsNone(protocol.firmware_note("7.1.4.0"))
+        self.assertIn("take over", protocol.firmware_note("7.1.4.1"))
+        self.assertIn("take over", protocol.firmware_note("7.1.10.0"))
+        self.assertIn("not tested", protocol.firmware_note("7.0.3.1"))
+        self.assertIn("not tested", protocol.firmware_note("weird"))
+
+
 if __name__ == "__main__":
     unittest.main()
