@@ -13,6 +13,7 @@ current state is written to a status file (see status.py) for the tray icon and 
 from __future__ import annotations
 
 import argparse
+import os
 import select
 import signal
 import sys
@@ -22,8 +23,10 @@ import evdev
 
 from . import protocol
 from . import status as status_file
-from .config import ConfigWatcher
+from .config import ConfigWatcher, config_path
 from .device import Controller, DeviceError, detach_xpad, find_xpad_event, reattach_xpad
+from .led import LedSettings, PressFlash, build_blob, geometry
+from .led import describe as describe_lights
 from .games import GameWatcher
 from .gyro import GyroAim
 from .keyboard_mouse import VirtualKeyboardMouse
@@ -75,6 +78,62 @@ class StatusReporter:
         except OSError:
             pass  # the status file is a convenience; never let it stop the controller
         self._last, self._written_at = fields, now
+
+
+def led_backup_folder() -> str:
+    return os.path.join(os.path.dirname(config_path()), "controller-backups")
+
+
+class LedApplier:
+    """Sends the LED settings to the controller when they change. They are never saved on the controller.
+
+    "controller" means the controller's own lights: the first time the app changes them, it keeps a copy
+    of what the controller showed (led-profile<N>-original.bin), and puts that back when asked.
+    """
+
+    def __init__(self, pad: Controller, backup_folder: str | None = None):
+        self.pad = pad
+        self.backup_folder = backup_folder or led_backup_folder()
+        self._applied: LedSettings | None = None  # None = the controller's own lights are showing
+        self._profile: int | None = None
+        self._original: bytes | None = None
+
+    def apply(self, wanted: LedSettings) -> None:
+        target = None if wanted.effect == "controller" else wanted
+        if target == self._applied:
+            return
+        try:
+            original = self._original_lights()
+            blob = original if target is None else build_blob(target, *geometry(original))
+            if not self.pad.write_led(self._profile, blob):
+                raise DeviceError("the controller didn't accept the LED settings")
+        except (DeviceError, ValueError, OSError) as err:
+            log(f"lights: couldn't change them: {err}")
+        else:
+            log("lights: " + ("controller's own lights" if target is None else describe_lights(target)))
+        self._applied = target  # after a failure, try again only when the settings change
+
+    def _original_lights(self) -> bytes:
+        if self._original is not None:
+            return self._original
+        self._profile = self.pad.read_active_profile()
+        if self._profile is None:
+            raise DeviceError("the controller didn't say which profile it's using")
+        path = os.path.join(self.backup_folder, f"led-profile{self._profile}-original.bin")
+        try:
+            with open(path, "rb") as f:
+                original = f.read()
+            geometry(original)
+        except (OSError, ValueError):
+            original = self.pad.read_led(self._profile)
+            if not original:
+                raise DeviceError("couldn't read the controller's LED settings") from None
+            geometry(original)
+            os.makedirs(self.backup_folder, exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(original)
+        self._original = original
+        return original
 
 
 def hide_xpad(pad: Controller) -> tuple[str | None, evdev.InputDevice | None]:
@@ -138,6 +197,11 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
     log(f"connected: {pad.path}{details} · press {gyro.settings.button} to toggle gyro aiming")
     if games.active:
         log(f"profile: {games.active}")
+    lights = LedApplier(pad)
+    lights.apply(settings.led)
+    flash = PressFlash()
+    flash.configure(settings.led)
+    held = False  # any button down, for "Flash on button press"
 
     vpad: VirtualElite | None = None
     keyboard_mouse: VirtualKeyboardMouse | None = None
@@ -157,6 +221,8 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
             if reloaded or profile_changed:
                 settings = watcher.settings.for_profile(games.active)
                 gyro.settings = settings.gyro
+                lights.apply(settings.led)
+                flash.configure(settings.led)
             if now >= next_info:
                 pad.request_info()  # the answer updates pad.info (battery) on a later poll
                 next_info = now + INFO_REFRESH_S
@@ -169,6 +235,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
                 for state in states:
                     vpad.update(settings.for_games(state))
                     keyboard_mouse.hold(settings.keys_for(state.buttons))
+                held = any(state.buttons for state in states)  # a quick tap between two loops still counts
                 dx, dy, toggled = gyro.process(states, now)
                 keyboard_mouse.move(dx, dy)
                 if toggled:
@@ -184,6 +251,10 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
                 vpad = keyboard_mouse = None
                 sent_rumble = (0, 0)
                 log("controller idle (off or asleep): virtual controller and keyboard and mouse removed")
+
+            flash_color = flash.update(held and vpad is not None, now)
+            if flash_color is not None:
+                pad.set_led_color(*flash_color)
 
             if vpad:
                 vpad.handle_events(now)

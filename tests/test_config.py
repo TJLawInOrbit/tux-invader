@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from evdev import ecodes as e  # noqa: E402
 
 from test_protocol import input_report  # noqa: E402
-from vader5 import config, protocol  # noqa: E402
+from vader5 import config, led, protocol  # noqa: E402
 
 
 class ParseTests(unittest.TestCase):
@@ -173,6 +173,40 @@ class ProfileTests(unittest.TestCase):
             "remap": {"M1": "M1", "C": "NONE"},
         })
         self.assertEqual(config.overrides_between(main, main), {})
+
+
+class LedSettingsTests(unittest.TestCase):
+    def test_led_section(self):
+        settings = config.parse('[led]\neffect = "Breath"\ncolors = ["#FF0000", "0000ff"]\nbrightness = 80\nspeed = 7')
+        self.assertEqual(settings.led, led.LedSettings("breath", ((255, 0, 0), (0, 0, 255)), 80, 7))
+        self.assertEqual(config.parse(config.render(settings)), settings)
+        self.assertEqual(config.Settings().led.effect, "controller")  # the app leaves the lights alone by default
+        self.assertIn("led: Breathing, #ff0000 #0000ff, brightness 80, speed 7", config.describe(settings))
+
+    def test_led_mistakes_are_explained(self):
+        cases = {
+            '[led]\neffect = "disco"': "unknown effect 'disco'",
+            '[led]\ncolors = ["#12"]': "isn't a color",
+            '[led]\ncolors = []': "1 to 10 colors",
+            '[led]\nbrightness = 101': "brightness should be between 0 and 100",
+            '[led]\nspeed = 0': "speed should be between 1 and 10",
+            '[led]\nspeed = 2.5': "speed should be a whole number",
+            '[led]\nglow = 1': "unknown setting 'glow' in [led]",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(config.ConfigError) as caught:
+                    config.parse(text)
+                self.assertIn(message, str(caught.exception))
+
+    def test_game_profiles_can_have_their_own_lights(self):
+        settings = config.parse('[led]\neffect = "static"\ncolors = ["#0000ff"]\n'
+                                '[[profile]]\nname = "SF6"\nsteam_app_id = 1364780\n[profile.led]\ncolors = ["#ff0000"]')
+        self.assertEqual(settings.for_profile("SF6").led, led.LedSettings("static", ((255, 0, 0),), 50, 5))
+        self.assertEqual(settings.profiles[0].overrides, {"led": {"colors": ["#ff0000"]}})
+        self.assertEqual(config.parse(config.render(settings)), settings)
+        self.assertEqual(config.overrides_between(settings, settings.for_profile("SF6")),
+                         {"led": {"colors": ["#ff0000"]}})
 
 
 class SaveTests(unittest.TestCase):

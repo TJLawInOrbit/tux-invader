@@ -110,6 +110,25 @@ what's wrong, and the previous settings stay in use.
   `f1` and `f13`; the full list is in `/usr/include/linux/input-event-codes.h`, without `KEY_`.
   Keys are released when you let go of the button, and also if the controller turns off.
 
+### LED strip
+
+The **LED** tab in the settings window (or `[led]` in the settings file) sets what the strip on the
+controller shows: the controller's own lights (the default), off, a static color, a color per zone,
+breathing, pulse, color cycle, rainbow, strobe, wave, or a flash when you press a button, with
+brightness and speed. Game profiles can have their own lights.
+
+`vader5-pad` sends the lights when the controller connects and whenever they change. They are never
+saved on the controller, so switching it off and on shows its own lights until the service sends
+yours again. The first time the app changes the lights it keeps a copy of the controller's own in
+`~/.config/vader5/controller-backups/led-profile<N>-original.bin`, and puts that back when you choose
+"Controller's own lights". Effects marked experimental are built from animation frames.
+
+**Flash on button press** is done by the app: the controller's own press-feedback effect only pulses
+by itself (with or without test mode), so the strip stays off and `vader5-pad` lights it with the
+instant-color command (`5A A5 F5 05 R G B checksum`) the moment a button is pressed, keeps it lit
+while held, then fades it out within about 15 ms. With up to 4 colors, each press uses the next one.
+It only works while the background service is running.
+
 ### Game profiles
 
 Different settings for different games, switched automatically while the game runs. In the settings
@@ -219,6 +238,7 @@ python3 -m unittest discover tests
 | `vader5/tray.py`, `vader5-tray` | Tray icon: status, battery warning (PyQt6) |
 | `vader5/status.py` | Status file shared by the service, tray and settings window |
 | `vader5/games.py` | Finds installed Steam games and which profile's game is running |
+| `vader5/led.py` | LED strip effects: builds the controller's LED data |
 | `vader5-desktop` | Adds the app menu entries and starts the tray icon at login |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |
@@ -233,6 +253,12 @@ byte after `5A A5`.
 | Handshake | `5A A5 01 02 03`, `5A A5 A1 02 A3`, `5A A5 02 02 04`, `5A A5 04 02 06` |
 | Test mode on / off | `5A A5 11 07 FF 01 FF FF FF 15` / `... 00 FF FF FF 14` |
 | Rumble | `5A A5 12 06 <strong> <weak> 00 00 <checksum>` |
+| Active profile | `5A A5 A1 02 A3` (reply byte 5) |
+| LED read / write | `A7` (profile, 20) / `A8` (profile, 0, packets, 20) + `A9` (index, 20 bytes) — never saved with `A6` |
+
+LED data (layout from [flydigi-vader-pro-5-ctl](https://github.com/rR6kULhc5xgS/flydigi-vader-pro-5-ctl)'s
+protocol notes, checked on this controller): a 20-byte header (version 3.0, click-feedback flag,
+animation first/last frame, period, brightness 0-100, 10 zones, effect) and 10 frames of 10 RGB colors.
 
 Input report (`5A A5 EF`, 32 bytes):
 

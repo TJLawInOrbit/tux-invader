@@ -223,6 +223,57 @@ class Controller:
             self._last_report = now
         return states
 
+    BLOB_TIMEOUT_S = 3.0
+
+    def _replies(self, cmd: int, timeout: float):
+        """Replies to `cmd` arriving within `timeout`. Input reports read meanwhile are dropped."""
+        deadline = time.monotonic() + timeout
+        while (remaining := deadline - time.monotonic()) > 0:
+            select.select([self._fd], [], [], min(remaining, 0.05))
+            for packet in self._read_available():
+                if len(packet) >= 5 and packet[:2] == protocol.MAGIC and packet[2] == cmd:
+                    yield packet
+
+    def _exchange(self, packet: bytes, cmd: int, timeout: float = 1.0, attempts: int = 3) -> bytes | None:
+        for _ in range(attempts):
+            self._write(packet)
+            for reply in self._replies(cmd, timeout):
+                return reply
+        return None
+
+    def read_active_profile(self) -> int | None:
+        """Which on-board profile (0-3) the controller is using; None if it doesn't answer."""
+        reply = self._exchange(protocol.profile_versions_request(), protocol.CMD_PROFILE_VERSIONS)
+        return protocol.active_profile(reply) if reply else None
+
+    def read_led(self, profile: int) -> bytes | None:
+        """An on-board profile's LED settings. Only read the active profile: reading one selects it."""
+        size = protocol.BLOB_PACKET_SIZE
+        for _ in range(3):
+            self._write(protocol.led_read_request(profile))
+            packets: dict[int, bytes] = {}
+            for reply in self._replies(protocol.CMD_LED_READ, self.BLOB_TIMEOUT_S):
+                total = reply[3]
+                packets[reply[4]] = bytes(reply[6:6 + size])
+                if total and all(index in packets for index in range(total)):
+                    return b"".join(packets[index] for index in range(total))
+        return None
+
+    def write_led(self, profile: int, blob: bytes) -> bool:
+        """Send LED settings. They show at once and are NOT saved: a power cycle brings back the stored lights."""
+        size = protocol.BLOB_PACKET_SIZE
+        chunks = [blob[i:i + size] for i in range(0, len(blob), size)]
+        if self._exchange(protocol.led_write_start(profile, len(chunks)), protocol.CMD_LED_WRITE_START) is None:
+            return False
+        return all(
+            self._exchange(protocol.led_write_pack(index, chunk), protocol.CMD_LED_WRITE_PACK) is not None
+            for index, chunk in enumerate(chunks)
+        )
+
+    def set_led_color(self, red: int, green: int, blue: int) -> None:
+        """Show one color on the whole LED strip right away, without waiting for the reply."""
+        self._write(protocol.led_test_color(red, green, blue))
+
     def request_info(self) -> None:
         """Ask for firmware/connection/battery; the answer shows up in `self.info` after a poll."""
         self._write(protocol.info_request())

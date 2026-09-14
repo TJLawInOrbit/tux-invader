@@ -25,18 +25,20 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from . import keyboard_mouse, protocol
+from . import led as lighting
 from .gyro import GyroSettings
 from .virtual_pad import BUTTON_CODES
 
 NONE = "NONE"  # remap target that turns a button off
 ALIASES = {"VIEW": "SELECT", "BACK": "SELECT", "MENU": "START", "GUIDE": "HOME"}
-SECTIONS = ("gyro", "sticks", "remap")
+SECTIONS = ("gyro", "sticks", "remap", "led")
 GYRO_SETTINGS = {  # name in the file -> GyroSettings attribute
     "button": "button", "ratchet": "ratchet", "sensitivity": "sensitivity",
     "horizontal_scale": "horizontal_scale", "vertical_scale": "vertical_scale",
     "invert_x": "invert_x", "invert_y": "invert_y", "tightening": "tightening_dps",
 }
 STICK_SETTINGS = ("left_deadzone", "right_deadzone")
+LED_SETTINGS = ("effect", "colors", "brightness", "speed")
 PROFILE_KEYS = {"name", "steam_app_id", "process", *SECTIONS}
 
 
@@ -74,6 +76,7 @@ class Settings:
     right_deadzone: float = 0.0
     remap: dict[str, str] = field(default_factory=dict)  # physical button -> controller button, or NONE
     key_remap: dict[str, KeyCombo] = field(default_factory=dict)  # physical button -> keys/mouse buttons
+    led: lighting.LedSettings = field(default_factory=lighting.LedSettings)
     profiles: list[Profile] = field(default_factory=list)
 
     def for_profile(self, name: str | None) -> Settings:
@@ -206,6 +209,30 @@ def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
             settings.remap[name] = _button(target, where, (*BUTTON_CODES, NONE))
             settings.key_remap.pop(name, None)
 
+    lights = _table(tables, "led", prefix)
+    _check_keys(lights, set(LED_SETTINGS), f"{prefix}[led]")
+    changes = {}
+    if "effect" in lights:
+        effect = lights["effect"]
+        if not isinstance(effect, str) or effect.strip().lower() not in lighting.EFFECTS:
+            raise ConfigError(f"{prefix}[led] effect: unknown effect {effect!r} "
+                              f"(use one of: {' '.join(lighting.EFFECTS)})")
+        changes["effect"] = effect.strip().lower()
+    if "colors" in lights:
+        changes["colors"] = _colors(lights["colors"], f"{prefix}[led] colors")
+    if "brightness" in lights:
+        changes["brightness"] = _integer(lights["brightness"], f"{prefix}[led] brightness", 0, 100)
+    if "speed" in lights:
+        changes["speed"] = _integer(lights["speed"], f"{prefix}[led] speed", 1, 10)
+    if changes:
+        settings.led = dataclasses.replace(settings.led, **changes)
+
+
+def _led_value(lights: lighting.LedSettings, key: str):
+    """An LED setting as written in the file."""
+    value = getattr(lights, key)
+    return [lighting.color_text(color) for color in value] if key == "colors" else value
+
 
 def _parse_profile(table, main: Settings, index: int) -> Profile:
     if not isinstance(table, dict):
@@ -235,7 +262,9 @@ def _overrides_as_written(tables: dict, effective: Settings) -> dict[str, dict]:
     for source in _table(tables, "remap"):
         name = ALIASES.get(source.strip().upper(), source.strip().upper())
         remap[name] = effective.target(name)
-    return {section: values for section, values in (("gyro", gyro), ("sticks", sticks), ("remap", remap)) if values}
+    lights = {key: _led_value(effective.led, key) for key in _table(tables, "led")}
+    return {section: values for section, values in
+            (("gyro", gyro), ("sticks", sticks), ("remap", remap), ("led", lights)) if values}
 
 
 def overrides_between(main: Settings, effective: Settings) -> dict[str, dict]:
@@ -249,7 +278,10 @@ def overrides_between(main: Settings, effective: Settings) -> dict[str, dict]:
         if wanted != main.target(name):
             # "back to itself" has to be spelled out, or the main remap would still apply
             remap[name] = wanted if wanted is not None else (name if name in BUTTON_CODES else NONE)
-    return {section: values for section, values in (("gyro", gyro), ("sticks", sticks), ("remap", remap)) if values}
+    lights = {key: _led_value(effective.led, key) for key in LED_SETTINGS
+              if getattr(effective.led, key) != getattr(main.led, key)}
+    return {section: values for section, values in
+            (("gyro", gyro), ("sticks", sticks), ("remap", remap), ("led", lights)) if values}
 
 
 def render(settings: Settings) -> str:
@@ -287,6 +319,18 @@ def render(settings: Settings) -> str:
         f"left_deadzone = {float(settings.left_deadzone)!r}",
         f"right_deadzone = {float(settings.right_deadzone)!r}",
         "",
+        "[led]",
+        '# What the LED strip shows. "controller" leaves the lights stored on the controller alone.',
+        "# Effects: " + " ".join(lighting.EFFECTS),
+        "# vader5-pad sends these whenever the controller connects; nothing is saved on the controller.",
+        f"effect = {_quote(settings.led.effect)}",
+        '# Colors as "#rrggbb", up to 10. Static, pulse, strobe and wave use the first one; press_flash uses',
+        "# up to 4, one per press.",
+        f"colors = {_toml_value(_led_value(settings.led, 'colors'))}",
+        "# Brightness 0-100; speed 1 (slow) to 10 (fast).",
+        f"brightness = {settings.led.brightness}",
+        f"speed = {settings.led.speed}",
+        "",
         "[remap]",
         "# physical button = what it sends instead. It can be:",
         '#   another controller button      M1 = "A"',
@@ -311,6 +355,9 @@ def render(settings: Settings) -> str:
         "#   sensitivity = 20.0",
         "#   [profile.remap]",
         '#   M1 = "M1"                   # M1 sends itself in this game, whatever [remap] says',
+        "#   [profile.led]",
+        '#   effect = "static"',
+        '#   colors = ["#ff0000"]',
     ]
     for profile in settings.profiles:
         lines += ["", "[[profile]]", f"name = {_quote(profile.name)}"]
@@ -347,6 +394,8 @@ def _quote(text: str) -> str:
 
 
 def _toml_value(value) -> str:
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
     if isinstance(value, bool):
         return str(value).lower()
     if isinstance(value, float):
@@ -425,6 +474,27 @@ def _boolean(value, where: str) -> bool:
     return value
 
 
+def _integer(value, where: str, low: int, high: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{where} should be a whole number")
+    if not low <= value <= high:
+        raise ConfigError(f"{where} should be between {low} and {high}, not {value}")
+    return value
+
+
+def _colors(value, where: str) -> tuple[tuple[int, int, int], ...]:
+    values = value if isinstance(value, list) else [value]
+    if not 1 <= len(values) <= lighting.MAX_COLORS:
+        raise ConfigError(f"{where} should list 1 to {lighting.MAX_COLORS} colors")
+    colors = []
+    for item in values:
+        color = lighting.parse_color(item) if isinstance(item, str) else None
+        if color is None:
+            raise ConfigError(f'{where}: {item!r} isn\'t a color; write it like "#ff8800"')
+        colors.append(color)
+    return tuple(colors)
+
+
 def _int_list(value, where: str) -> list[int]:
     values = value if isinstance(value, list) else [value]
     if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in values):
@@ -491,6 +561,7 @@ def describe(settings: Settings) -> str:
         f"invert y {str(gyro.invert_y).lower()}, tightening {gyro.tightening_dps:g}",
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",
         "remap: " + (", ".join(sorted(remaps)) or "none"),
+        "led: " + lighting.describe(settings.led),
         "profiles: " + ("; ".join(profiles) or "none"),
     ])
 

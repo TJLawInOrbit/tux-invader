@@ -145,6 +145,34 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertTrue(w.save())
         self.assertEqual(config.load(self.path).profiles, [])
 
+    def test_led_tab(self):
+        w = self.window
+        self.assertEqual(w.led_effect.currentData(), "controller")
+        self.assertFalse(w.led_colors.isEnabled())
+        self.assertFalse(w.save_button.isEnabled())
+
+        w.led_effect.setCurrentIndex(w.led_effect.findData("breath"))
+        self.assertTrue(w.led_colors.isEnabled())
+        self.assertTrue(w.led_speed.isEnabled())
+        w.led_colors.set_colors([(255, 0, 0), (0, 0, 255)])
+        w.led_brightness.setValue(80)
+        w.led_speed.setValue(7)
+        self.assertTrue(w.save())
+        saved = config.load(self.path).led
+        self.assertEqual((saved.effect, saved.colors, saved.brightness, saved.speed),
+                         ("breath", ((255, 0, 0), (0, 0, 255)), 80, 7))
+
+        w.led_effect.setCurrentIndex(w.led_effect.findData("static"))  # one color: the extra one is dropped
+        self.assertEqual(w.led_colors.colors(), ((255, 0, 0),))
+        self.assertFalse(w.led_speed.isEnabled())
+        self.assertIn("steady", w.led_effect_hint.text())
+        w.led_effect.setCurrentIndex(w.led_effect.findData("press_flash"))
+        self.assertIn("background service", w.led_effect_hint.text())
+        w.led_colors.set_colors([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)])
+        self.assertFalse(w.led_colors.add_button.isEnabled())  # 4 is the most for this effect
+        w.led_effect.setCurrentIndex(w.led_effect.findData("strobe"))
+        self.assertIn("Experimental", w.led_effect_hint.text())
+
     def test_revert_and_defaults(self):
         w = self.window
         w.sensitivity.setValue(40)

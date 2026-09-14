@@ -15,16 +15,17 @@ import subprocess
 import sys
 import time
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QCloseEvent, QColor
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGridLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider,
-    QTabWidget, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
+    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea,
+    QSlider, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from . import config
+from . import led as lighting
 from . import status as status_file
 from .config import NONE, ConfigError, KeyCombo, Profile, Settings
 from .device import find_config_hidraws
@@ -106,6 +107,87 @@ class SliderSpin(QWidget):
 
     def setValue(self, value: float) -> None:
         self.spin.setValue(value)
+
+
+class ColorList(QWidget):
+    """A row of color swatches: click one to change it; + adds a color, − removes the last one."""
+
+    changed = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._colors: list[tuple[int, int, int]] = [lighting.DEFAULT_COLOR]
+        self._minimum, self._maximum = 1, lighting.MAX_COLORS
+        self._swatches: list[QPushButton] = []
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self.add_button = QPushButton("+")
+        self.remove_button = QPushButton("−")
+        for button in (self.add_button, self.remove_button):
+            button.setFixedWidth(32)
+        self.add_button.setToolTip("Add a color")
+        self.remove_button.setToolTip("Remove the last color")
+        self.add_button.clicked.connect(self._add)
+        self.remove_button.clicked.connect(self._remove)
+        self._row.addWidget(self.add_button)
+        self._row.addWidget(self.remove_button)
+        self._row.addStretch(1)
+        self._rebuild()
+
+    def colors(self) -> tuple[tuple[int, int, int], ...]:
+        return tuple(self._colors)
+
+    def set_colors(self, colors) -> None:
+        self._colors = list(colors) or [lighting.DEFAULT_COLOR]
+        self._rebuild()
+        self.changed.emit()
+
+    def set_limits(self, minimum: int, maximum: int, trim: bool) -> None:
+        """How many colors the effect uses. `trim` drops or adds colors to fit (when the user picks an effect)."""
+        self._minimum, self._maximum = minimum, maximum
+        if trim and maximum:
+            self._colors = self._colors[:maximum]
+            while len(self._colors) < minimum:
+                self._colors.append(self._colors[-1] if self._colors else lighting.DEFAULT_COLOR)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        for swatch in self._swatches:
+            self._row.removeWidget(swatch)
+            swatch.deleteLater()
+        self._swatches = []
+        for index, color in enumerate(self._colors):
+            swatch = QPushButton()
+            swatch.setFixedSize(40, 26)
+            swatch.setToolTip(f"{lighting.color_text(color)} (click to change)")
+            swatch.setStyleSheet(f"background-color: {lighting.color_text(color)}; border: 1px solid gray;")
+            swatch.clicked.connect(lambda _checked=False, i=index: self._pick(i))
+            self._row.insertWidget(index, swatch)
+            self._swatches.append(swatch)
+        several = self._maximum > 1
+        self.add_button.setVisible(several)
+        self.remove_button.setVisible(several)
+        self.add_button.setEnabled(len(self._colors) < self._maximum)
+        self.remove_button.setEnabled(len(self._colors) > max(1, self._minimum))
+
+    def _pick(self, index: int) -> None:
+        chosen = QColorDialog.getColor(QColor(*self._colors[index]), self, "Choose a color")
+        if chosen.isValid():
+            self._colors[index] = (chosen.red(), chosen.green(), chosen.blue())
+            self._rebuild()
+            self.changed.emit()
+
+    def _add(self) -> None:
+        if len(self._colors) < self._maximum:
+            self._colors.append(self._colors[-1])
+            self._rebuild()
+            self.changed.emit()
+
+    def _remove(self) -> None:
+        if len(self._colors) > max(1, self._minimum):
+            self._colors.pop()
+            self._rebuild()
+            self.changed.emit()
 
 
 class RemapRow:
@@ -241,6 +323,7 @@ class SettingsWindow(QMainWindow):
         tabs.addTab(self._build_gyro_tab(), "Gyro")
         tabs.addTab(self._build_sticks_tab(), "Sticks")
         tabs.addTab(self._build_buttons_tab(), "Buttons")
+        tabs.addTab(self._build_led_tab(), "LED")
         layout.addWidget(tabs, 1)
 
         self.message = QLabel()
@@ -379,6 +462,44 @@ class SettingsWindow(QMainWindow):
         layout.addWidget(scroll, 1)
         return page
 
+    def _build_led_tab(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        form.addRow(hint("Choose what the LED strip on the controller shows. The background service sends it within "
+                         "a second of saving. Nothing is stored on the controller itself, so switching it off and on "
+                         "shows its own lights until the service sends yours again."))
+        self.led_effect = QComboBox()
+        for effect in lighting.EFFECTS.values():
+            self.led_effect.addItem(effect.label + (" (experimental)" if effect.experimental else ""), effect.name)
+        self.led_effect_hint = hint("")
+        self.led_colors = ColorList()
+        self.led_brightness = SliderSpin(0, 100, 1, 0)
+        self.led_speed = SliderSpin(1, 10, 1, 0)
+        form.addRow("Effect:", self.led_effect)
+        form.addRow("", self.led_effect_hint)
+        form.addRow("Colors:", self.led_colors)
+        form.addRow("Brightness:", self.led_brightness)
+        form.addRow("Speed:", self.led_speed)
+        form.addRow("", hint("Speed goes from 1 (slow) to 10 (fast)."))
+        self.led_effect.currentIndexChanged.connect(lambda _: (self._sync_led_controls(trim=True), self._changed()))
+        self.led_colors.changed.connect(self._changed)
+        for widget in (self.led_brightness, self.led_speed):
+            widget.valueChanged.connect(lambda _: self._changed())
+        self._sync_led_controls(trim=False)
+        return page
+
+    def _sync_led_controls(self, trim: bool) -> None:
+        effect = lighting.EFFECTS[self.led_effect.currentData()]
+        text = effect.hint
+        if effect.experimental:
+            text += " Experimental: built from animation frames, so it may look different on the controller."
+        self.led_effect_hint.setText(text)
+        if effect.max_colors:
+            self.led_colors.set_limits(effect.min_colors, effect.max_colors, trim)
+        self.led_colors.setEnabled(effect.max_colors > 0)
+        self.led_brightness.setEnabled(effect.name not in ("controller", "off"))
+        self.led_speed.setEnabled(effect.animated)
+
     # ------------------------------------------------------------------ settings <-> window
 
     def _show_settings(self, settings: Settings) -> None:
@@ -396,6 +517,12 @@ class SettingsWindow(QMainWindow):
         self.right_deadzone.setValue(settings.right_deadzone)
         for name, row in self.remap_rows.items():
             row.set_target(settings.target(name))
+        lights = settings.led
+        self.led_effect.setCurrentIndex(max(0, self.led_effect.findData(lights.effect)))
+        self.led_colors.set_colors(lights.colors)
+        self.led_brightness.setValue(lights.brightness)
+        self.led_speed.setValue(lights.speed)
+        self._sync_led_controls(trim=False)
         self._loading = False
         self._changed()
 
@@ -421,6 +548,10 @@ class SettingsWindow(QMainWindow):
                 settings.key_remap[name] = KeyCombo(target, ())
             else:
                 settings.remap[name] = target
+        settings.led = lighting.LedSettings(
+            self.led_effect.currentData(), self.led_colors.colors(),
+            int(round(self.led_brightness.value())), int(round(self.led_speed.value())),
+        )
         return config.parse(config.render(settings))
 
     def settings_from_window(self) -> Settings:

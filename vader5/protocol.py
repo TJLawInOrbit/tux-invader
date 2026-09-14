@@ -61,6 +61,48 @@ def command(cmd: int, *args: int) -> bytes:
     return body.ljust(PACKET_SIZE, b"\x00")
 
 
+CMD_PROFILE_VERSIONS = 0xA1  # which on-board profile is active
+CMD_LED_READ = 0xA7
+CMD_LED_WRITE_START = 0xA8
+CMD_LED_WRITE_PACK = 0xA9
+CMD_LED_TEST_COLOR = 0xF5
+BLOB_PACKET_SIZE = 20
+# There is deliberately no "save" command (0xA6): LED settings are applied live and never written
+# to the controller's memory. 0x1F (firmware mode), 0xFD (full reset) and 0xFE must never be sent.
+
+
+def request(cmd: int, *payload: int) -> bytes:
+    """A command with its length byte filled in: 5A A5 cmd length payload checksum."""
+    return command(cmd, 2 + len(payload), *payload)
+
+
+def profile_versions_request() -> bytes:
+    return request(CMD_PROFILE_VERSIONS)
+
+
+def active_profile(reply: bytes) -> int:
+    """The active on-board profile (0-3) from a profile-versions reply; 4-7 are the same profiles' Switch mode."""
+    raw = reply[5]
+    return raw - 4 if 4 <= raw <= 7 else raw if raw <= 3 else 0
+
+
+def led_read_request(profile: int) -> bytes:
+    return request(CMD_LED_READ, profile, BLOB_PACKET_SIZE)
+
+
+def led_write_start(profile: int, packets: int) -> bytes:
+    return request(CMD_LED_WRITE_START, profile, 0, packets, BLOB_PACKET_SIZE)  # start at packet 0
+
+
+def led_write_pack(index: int, chunk: bytes) -> bytes:
+    return request(CMD_LED_WRITE_PACK, index, *chunk)
+
+
+def led_test_color(red: int, green: int, blue: int) -> bytes:
+    """One color on the whole strip right away. Not saved; the next LED upload replaces it."""
+    return request(CMD_LED_TEST_COLOR, red & 0xFF, green & 0xFF, blue & 0xFF)
+
+
 # Handshake sent before enabling test mode; the controller acknowledges each one.
 INIT_SEQUENCE = tuple(command(cmd, 0x02) for cmd in (0x01, 0xA1, 0x02, 0x04))
 
