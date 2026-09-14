@@ -56,11 +56,20 @@ connects.
 To recenter your hands, set a **ratchet** button (for example `ratchet = "M2"` under `[gyro]`).
 While you hold it, gyro aiming pauses, so you can bring the controller back to a comfortable
 position without moving your aim, like lifting a mouse off the desk. It isn't sent to games either.
-Turning and tilting at the same time always shifts your aim a few degrees compared with where the
-controller points, which is normal for gyro-as-mouse aiming; the ratchet is how you correct it.
+A mouse has no fixed center, so your aim can still slowly shift compared with where the controller
+points, for example when the game stops the camera (looking straight up) while you keep turning. The
+ratchet is how you correct that.
 
-Drift is calibrated out automatically whenever the controller is held still for a moment, for
-example resting in your lap.
+**Turn around** (`space` under `[gyro]`) chooses how left and right turning is measured:
+
+- `"controller"` (the default): around the controller's own axis. Holding it tilted toward you makes
+  turning slower, and turning while tilting shifts your aim.
+- `"player"`: around the room's up direction, worked out from gravity ("player space", the usual
+  choice in Steam Input and gyro games). Turning feels the same however you hold the controller.
+
+Drift is calibrated out automatically whenever the controller is set down for a moment, for example
+on a desk. It only happens while the readings are as steady as a controller that isn't in anyone's
+hands, so slow, careful aiming is never mistaken for drift.
 
 The toggle button, sensitivity and direction can be changed in the settings file (see **Settings**).
 
@@ -80,8 +89,8 @@ Only one settings window opens at a time: launching it again (from the tray or t
 the open window to the front.
 
 It shows whether the controller is connected and the background service is running (with Start,
-Stop and "start at login"), and has tabs for the gyro, the sticks and button remaps. Save applies
-the changes within about a second. It writes the settings file in its standard layout, so comments
+Stop and "start at login"), and has tabs for the gyro, the sticks, button remaps and the LED strip.
+Save applies the changes within about a second. It writes the settings file in its standard layout, so comments
 you added to the file by hand aren't kept; the previous file is saved as `config.toml.bak`.
 
 You can also edit the file yourself:
@@ -96,7 +105,7 @@ Edit the file and save it: `vader5-pad` applies the change within about a second
 If the file has a mistake, `./vader5-config check` and the service log (`./vader5-service logs`) say
 what's wrong, and the previous settings stay in use.
 
-- `[gyro]`: toggle button, ratchet (hold to pause) button, sensitivity, extra speed for left/right
+- `[gyro]`: toggle button, ratchet (hold to pause) button, turn space, sensitivity, extra speed for left/right
   (`horizontal_scale`) or up/down (`vertical_scale`), inverting either direction, and tightening
   (lower it if small, slow movements feel stiff)
 - `[sticks]`: deadzones, for a stick that drifts
@@ -126,8 +135,8 @@ yours again. The first time the app changes the lights it keeps a copy of the co
 **Flash on button press** is done by the app: the controller's own press-feedback effect only pulses
 by itself (with or without test mode), so the strip stays off and `vader5-pad` lights it with the
 instant-color command (`5A A5 F5 05 R G B checksum`) the moment a button is pressed, keeps it lit
-while held, then fades it out within about 15 ms. With up to 4 colors, each press uses the next one.
-It only works while the background service is running.
+while held, and switches it off as soon as the button is let go. With up to 4 colors, each press
+uses the next one. It only works while the background service is running.
 
 ### Game profiles
 
@@ -255,6 +264,7 @@ byte after `5A A5`.
 | Rumble | `5A A5 12 06 <strong> <weak> 00 00 <checksum>` |
 | Active profile | `5A A5 A1 02 A3` (reply byte 5) |
 | LED read / write | `A7` (profile, 20) / `A8` (profile, 0, packets, 20) + `A9` (index, 20 bytes) — never saved with `A6` |
+| LED instant color | `5A A5 F5 05 R G B <checksum>` (shown at once, not saved; the next LED write replaces it) |
 
 LED data (layout from [flydigi-vader-pro-5-ctl](https://github.com/rR6kULhc5xgS/flydigi-vader-pro-5-ctl)'s
 protocol notes, checked on this controller): a 20-byte header (version 3.0, click-feedback flag,
@@ -281,15 +291,19 @@ and captures from a real controller (firmware 7.1.4.0).
 
 ## Roadmap
 
-1. Live viewer (done; tested over the cable and the 2.4G dongle)
-2. Virtual Xbox Elite controller via uinput, hiding the basic Xbox pad, with rumble passthrough
-   (working in Steam: single controller, rumble; being tested in games and emulators)
-3. Start automatically as a systemd user service (done; tested over cable and dongle, including
-   power off and on)
-4. Later:
-   - Gyro aiming in PC games (working; ratchet button for recentering. Measured: no saturation or
-     gyro corruption; turning while tilting shifts aim a few degrees, and player/world-space or
-     pointer-direction math wasn't reliably better)
-   - Settings file: gyro, deadzones, remaps (in progress); per-game profiles later
-   - Put the project under git (done)
-   - Maybe: settings window, real motion sensor for games
+Done:
+
+1. Live viewer (tested over the cable and the 2.4G dongle)
+2. Virtual Xbox Elite controller: back paddles, extra buttons, rumble, basic Xbox pad hidden (v0.1)
+3. Starts automatically at login as a systemd user service, and reconnects on its own
+4. Gyro aiming as a mouse: toggle button, ratchet (hold to pause), left/right and up/down speed
+5. Settings file and settings window; keyboard keys and mouse buttons in remaps
+6. Tray icon, app menu entries and per-game profiles; paddles match Steam's P1-P4 (v0.2)
+7. LED strip control, including a flash on button press (v0.3)
+
+Next:
+
+- Gyro: less slip between where the controller points and where you aim
+- Later, on hold: packaging so others can install it easily, and testing the low-battery warning
+
+Not planned: gyro for emulators.

@@ -26,14 +26,14 @@ from typing import NamedTuple
 
 from . import keyboard_mouse, protocol
 from . import led as lighting
-from .gyro import GyroSettings
+from .gyro import SPACES as GYRO_SPACES, GyroSettings
 from .virtual_pad import BUTTON_CODES
 
 NONE = "NONE"  # remap target that turns a button off
 ALIASES = {"VIEW": "SELECT", "BACK": "SELECT", "MENU": "START", "GUIDE": "HOME"}
 SECTIONS = ("gyro", "sticks", "remap", "led")
 GYRO_SETTINGS = {  # name in the file -> GyroSettings attribute
-    "button": "button", "ratchet": "ratchet", "sensitivity": "sensitivity",
+    "button": "button", "ratchet": "ratchet", "space": "space", "sensitivity": "sensitivity",
     "horizontal_scale": "horizontal_scale", "vertical_scale": "vertical_scale",
     "invert_x": "invert_x", "invert_y": "invert_y", "tightening": "tightening_dps",
 }
@@ -182,6 +182,11 @@ def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
         raise ConfigError(f"{prefix}[gyro] ratchet can't be TURBO: Turbo only sends a short pulse, so it can't be held")
     if settings.gyro.ratchet != NONE and settings.gyro.ratchet == settings.gyro.button:
         raise ConfigError(f"{prefix}[gyro] ratchet and button can't be the same button")
+    if "space" in gyro:
+        space = gyro["space"]
+        if not isinstance(space, str) or space.lower() not in GYRO_SPACES:
+            raise ConfigError(f'{prefix}[gyro] space must be "controller" or "player", not {space!r}')
+        settings.gyro.space = space.lower()
     if "sensitivity" in gyro:
         settings.gyro.sensitivity = _number(gyro["sensitivity"], f"{prefix}[gyro] sensitivity", 0.0, 1000.0)
     for key in ("horizontal_scale", "vertical_scale"):
@@ -303,6 +308,10 @@ def render(settings: Settings) -> str:
         '# mouse off the desk. It isn\'t sent to games. "NONE" = no pause button. Turbo can\'t be held, so it',
         "# can't be used here.",
         f"ratchet = {_quote(gyro.ratchet)}",
+        "# How turning left and right is measured:",
+        '#   "controller" = around the controller\'s own axis, so holding it tilted turns slower',
+        '#   "player" = around the room\'s up direction (from gravity), so it works at any grip angle',
+        f"space = {_quote(gyro.space)}",
         "# Mouse movement per degree the controller turns. Higher is faster.",
         f"sensitivity = {float(gyro.sensitivity)!r}",
         "# Extra speed for one direction on top of sensitivity: 1.25 = a quarter more, 0.8 = a fifth less.",
@@ -556,7 +565,7 @@ def describe(settings: Settings) -> str:
     remaps += [f"{source} -> {combo.text}" for source, combo in settings.key_remap.items()]
     profiles = [f"{profile.name} ({profile.describe_game()})" for profile in settings.profiles]
     return "\n".join([
-        f"gyro: toggle {gyro.button}, ratchet {gyro.ratchet}, sensitivity {gyro.sensitivity:g} "
+        f"gyro: toggle {gyro.button}, ratchet {gyro.ratchet}, {gyro.space} space, sensitivity {gyro.sensitivity:g} "
         f"(horizontal x{gyro.horizontal_scale:g}, vertical x{gyro.vertical_scale:g}), invert x {str(gyro.invert_x).lower()}, "
         f"invert y {str(gyro.invert_y).lower()}, tightening {gyro.tightening_dps:g}",
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",

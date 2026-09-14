@@ -403,6 +403,9 @@ class SettingsWindow(QMainWindow):
         for name in UI_ORDER:
             if name != "TURBO":
                 self.gyro_ratchet.addItem(BUTTON_LABELS[name], name)
+        self.gyro_space = QComboBox()
+        self.gyro_space.addItem("The controller's own axis", "controller")
+        self.gyro_space.addItem("The room's up direction (player space)", "player")
         self.sensitivity = SliderSpin(0, 1000, 0.5, 1, slider_high=50)
         self.horizontal_scale = SliderSpin(0, 10, 0.05, 2, slider_high=3)
         self.vertical_scale = SliderSpin(0, 10, 0.05, 2, slider_high=3)
@@ -413,6 +416,9 @@ class SettingsWindow(QMainWindow):
         form.addRow("On / off button:", self.gyro_button)
         form.addRow("Pause while held (ratchet):", self.gyro_ratchet)
         form.addRow("", hint("Hold it to bring your hands back to center without moving your aim."))
+        form.addRow("Turn left / right around:", self.gyro_space)
+        form.addRow("", hint("Player space uses gravity, so turning feels the same however tilted you hold "
+                             "the controller."))
         form.addRow("Sensitivity:", self.sensitivity)
         form.addRow("", hint("Mouse movement per degree you turn the controller."))
         form.addRow("Left / right speed:", self.horizontal_scale)
@@ -423,7 +429,7 @@ class SettingsWindow(QMainWindow):
         form.addRow("Steadiness (tightening):", self.tightening)
         form.addRow("", hint("Turning slower than this many degrees per second is softened. "
                              "Lower feels more responsive, higher feels steadier. 0 turns it off."))
-        for widget in (self.gyro_button, self.gyro_ratchet):
+        for widget in (self.gyro_button, self.gyro_ratchet, self.gyro_space):
             widget.currentIndexChanged.connect(lambda _: self._changed())
         for widget in (self.sensitivity, self.horizontal_scale, self.vertical_scale, self.tightening):
             widget.valueChanged.connect(lambda _: self._changed())
@@ -507,6 +513,7 @@ class SettingsWindow(QMainWindow):
         gyro = settings.gyro
         self.gyro_button.setCurrentIndex(self.gyro_button.findData(gyro.button))
         self.gyro_ratchet.setCurrentIndex(max(0, self.gyro_ratchet.findData(gyro.ratchet)))
+        self.gyro_space.setCurrentIndex(max(0, self.gyro_space.findData(gyro.space)))
         self.sensitivity.setValue(gyro.sensitivity)
         self.horizontal_scale.setValue(gyro.horizontal_scale)
         self.vertical_scale.setValue(gyro.vertical_scale)
@@ -532,6 +539,7 @@ class SettingsWindow(QMainWindow):
         gyro = settings.gyro
         gyro.button = self.gyro_button.currentData()
         gyro.ratchet = self.gyro_ratchet.currentData()
+        gyro.space = self.gyro_space.currentData()
         gyro.sensitivity = self.sensitivity.value()
         gyro.horizontal_scale = self.horizontal_scale.value()
         gyro.vertical_scale = self.vertical_scale.value()

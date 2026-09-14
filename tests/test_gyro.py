@@ -86,13 +86,62 @@ class GyroAimTests(unittest.TestCase):
         self.assertAlmostEqual(abs(loose), 50, delta=3)
         self.assertAlmostEqual(abs(tight), 25, delta=3)
 
-    def test_drift_is_calibrated_out_while_still(self):
+    def test_drift_is_calibrated_out_while_resting(self):
         aim = gyro.GyroAim()
         drift = (0.3, -0.2, 0.3)
-        _, _, now = self.feed(aim, report(gyro_dps=drift), 4.0)
+        _, _, now = self.feed(aim, report(gyro_dps=drift), 10.0)
         aim.process([report(gyro_dps=drift, buttons={BUTTON})], now + 0.002)
         dx, dy, _ = self.feed(aim, report(gyro_dps=drift), 2.0, start=now + 0.002)
         self.assertLessEqual(abs(dx) + abs(dy), 1)  # uncalibrated this would be about 9 counts
+
+    def feed_alternating(self, aim, states, seconds, start=0.0, rate=490.0):
+        """Feed reports that alternate between `states`, like shaky hands, in batches of 10."""
+        now, dx = start, 0
+        for index in range(int(seconds * rate / 10)):
+            now += 10 / rate
+            batch = [states[(index * 10 + i) % len(states)] for i in range(10)]
+            dx += aim.process(batch, now)[0]
+        return dx, now
+
+    def test_resting_noise_still_calibrates(self):
+        aim = gyro.GyroAim()
+        desk = [report(gyro_dps=(0.2, 0, 0.4)), report(gyro_dps=(0.0, 0, 0.2))]  # 0.1 deg/s wobble
+        self.feed_alternating(aim, desk, 10.0)
+        self.assertAlmostEqual(aim.bias[2], 0.3, delta=0.05)
+
+    def test_slow_aiming_in_hands_is_not_taken_for_drift(self):
+        aim = self.enabled_aim(sensitivity=100.0, tightening_dps=0.0)
+        hands = [report(gyro_dps=(0, 0, 1.3)), report(gyro_dps=(0, 0, 0.1))]  # 0.7 deg/s aim, shaking 0.6
+        dx, _ = self.feed_alternating(aim, hands, 6.0, start=0.002)
+        self.assertAlmostEqual(abs(dx), 0.7 * 6 * 100, delta=20)  # every bit of it reaches the mouse
+        self.assertEqual(aim.bias, [0.0, 0.0, 0.0])
+
+    def test_player_space_turns_at_full_speed_when_tilted(self):
+        tilted_up = (0.0, 0.6, 0.8)  # the controller's face tipped toward you
+        turning = report(gyro_dps=tuple(90 * u for u in (0.0, 0.6, 0.8)), accel_g=tilted_up)  # turning in place
+        own_axis, dy, _ = self.feed(self.enabled_aim(sensitivity=10.0), turning, 1.0, start=0.002)
+        player, player_dy, _ = self.feed(self.enabled_aim(sensitivity=10.0, space="player"), turning, 1.0, start=0.002)
+        self.assertAlmostEqual(abs(own_axis), 900 * 0.8, delta=15)
+        self.assertAlmostEqual(abs(player), 900, delta=15)
+        self.assertEqual((dy, player_dy), (0, 0))
+        self.assertEqual(own_axis > 0, player > 0)  # same direction
+
+    def test_player_space_matches_controller_space_when_flat(self):
+        turning = report(gyro_dps=(0, 0, 90))
+        own_axis, _, _ = self.feed(self.enabled_aim(sensitivity=10.0), turning, 1.0, start=0.002)
+        player, _, _ = self.feed(self.enabled_aim(sensitivity=10.0, space="player"), turning, 1.0, start=0.002)
+        self.assertAlmostEqual(player, own_axis, delta=2)
+
+    def test_up_direction_follows_rotation(self):
+        aim = gyro.GyroAim()
+        aim.process([report()], 0.0)  # flat: up is the controller's z axis
+        # tip it 90 degrees around the pitch axis while shaking (1.5 g), so only the gyro can tell
+        states = [report(gyro_dps=(90, 0, 0), accel_g=(0.0, 0.0, 1.5))] * 10
+        now = 0.0
+        for _ in range(50):  # 1 second
+            now += 0.02
+            aim.process(states, now)
+        self.assertAlmostEqual(abs(aim._up[1]), 1.0, delta=0.05)  # up now lies along the roll axis
 
     def test_ratchet_pauses_movement_while_held(self):
         aim = self.enabled_aim(sensitivity=10.0, ratchet="M2")

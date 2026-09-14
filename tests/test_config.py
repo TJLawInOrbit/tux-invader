@@ -42,6 +42,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual((settings.left_deadzone, settings.right_deadzone), (0.1, 0.0))
         self.assertEqual(settings.remap, {"M1": "A", "M2": config.NONE, "START": "HOME"})
 
+    def test_gyro_space(self):
+        self.assertEqual(config.parse("").gyro.space, "controller")
+        self.assertEqual(config.parse('[gyro]\nspace = "Player"').gyro.space, "player")
+        with self.assertRaisesRegex(config.ConfigError, "space must be"):
+            config.parse('[gyro]\nspace = "world"')
+
     def test_mistakes_are_explained(self):
         cases = {
             '[gyro]\nsensitivity = "fast"': "sensitivity should be a number",

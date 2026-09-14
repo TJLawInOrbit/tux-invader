@@ -78,6 +78,7 @@ class SettingsWindowTests(unittest.TestCase):
         w = self.window
         w.sensitivity.setValue(22.5)
         w.invert_y.setChecked(True)
+        w.gyro_space.setCurrentIndex(w.gyro_space.findData("player"))
         w.left_deadzone.setValue(0.1)
         z = w.remap_rows["Z"]
         z.combo.setCurrentIndex(z.combo.findData(self.module.KEY))
@@ -89,6 +90,7 @@ class SettingsWindowTests(unittest.TestCase):
         saved = config.load(self.path)
         self.assertEqual(saved.gyro.sensitivity, 22.5)
         self.assertTrue(saved.gyro.invert_y)
+        self.assertEqual(saved.gyro.space, "player")
         self.assertEqual(saved.left_deadzone, 0.1)
         self.assertEqual(saved.key_remap["Z"].text, "key:ctrl+c")
         self.assertEqual(saved.key_remap["M1"].text, "key:space")  # untouched settings are kept

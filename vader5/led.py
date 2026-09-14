@@ -52,7 +52,7 @@ EFFECTS: dict[str, Effect] = {effect.name: effect for effect in (
     # The controller's own press-feedback effect (4) only pulses by itself, so the app does this one:
     # the strip stays off (6) and PressFlash lights it while a button is held.
     Effect("press_flash", "Flash on button press", 6, 1, 4, False,
-           hint="Lights up while you press a button, then fades out. With several colors, each press uses "
+           hint="Lights up while you press a button and goes dark when you let go. With several colors, each press uses "
                 "the next one (up to 4). The app does this, so it only works while the background service "
                 "is running."),
 )}
@@ -173,13 +173,13 @@ def build_blob(lights: LedSettings, zones: int, frames: int) -> bytes:
 
 FLASH_LOOP_TIME = 1  # the controller's transition value for the dark background of press_flash
 FLASH_MAX_COLORS = 4
-FLASH_STEP_S = 0.015  # time between fade steps (a press is always sent at once)
-FLASH_FADE = (0.3, 0.0)  # brightness steps after the button is let go: dark about 15 ms later
+FLASH_STEP_S = 0.015  # least time between colors sent (a press is always sent at once)
+FLASH_FADE = (0.0,)  # brightness steps after the button is let go: straight to dark
 
 
 class PressFlash:
     """"Flash on button press", done by the app with the instant-color command: the strip lights up while
-    any button is held and fades out after it's let go; each new press uses the next of up to 4 colors.
+    any button is held and goes dark when it's let go; each new press uses the next of up to 4 colors.
     (The controller's own press-feedback effect only pulses by itself, with or without test mode.)"""
 
     def __init__(self):

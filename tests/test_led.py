@@ -98,15 +98,15 @@ class BlobTests(unittest.TestCase):
 
 
 class PressFlashTests(unittest.TestCase):
-    def test_lights_while_held_then_fades_out(self):
+    def test_lights_while_held_then_goes_dark(self):
         flash = led.PressFlash()
         self.assertIsNone(flash.update(True, 0.0))  # not configured for press_flash
         flash.configure(led.LedSettings("press_flash", ((200, 100, 0),), brightness=50))
         self.assertIsNone(flash.update(False, 0.0))  # nothing pressed, nothing to send
         self.assertEqual(flash.update(True, 0.1), (100, 50, 0))  # brightness 50 %
         self.assertIsNone(flash.update(True, 0.2))  # still held: already lit
-        fade = [flash.update(False, 0.3 + step * 0.02) for step in range(3)]
-        self.assertEqual(fade, [(30, 15, 0), (0, 0, 0), None])  # dark one step after letting go
+        fade = [flash.update(False, 0.3 + step * 0.02) for step in range(2)]
+        self.assertEqual(fade, [(0, 0, 0), None])  # dark as soon as it's let go
 
     def test_each_press_uses_the_next_color(self):
         flash = led.PressFlash()
@@ -124,8 +124,8 @@ class PressFlashTests(unittest.TestCase):
         flash = led.PressFlash()
         flash.configure(led.LedSettings("press_flash", ((255, 0, 0), (0, 0, 255)), brightness=100))
         self.assertEqual(flash.update(True, 0.0), (255, 0, 0))
-        self.assertIsNone(flash.update(False, 0.005))  # next fade step not due yet
-        self.assertEqual(flash.update(False, 0.02), (76, 0, 0))
+        self.assertIsNone(flash.update(False, 0.005))  # too soon after the press to send again
+        self.assertEqual(flash.update(False, 0.02), (0, 0, 0))
         self.assertEqual(flash.update(True, 0.025), (0, 0, 255))  # pressed again: next color at once
 
     def test_other_effects_send_nothing(self):
