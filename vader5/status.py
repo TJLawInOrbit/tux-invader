@@ -64,12 +64,32 @@ def battery_text(status: dict) -> str | None:
 
 
 def single_instance_lock(name: str):
-    """A lock held for as long as this process runs; None if another process already holds it."""
+    """A lock held for as long as this process runs; None if another process already holds it.
+    The holder writes its process ID into the lock file, so lock_holder() can find it."""
     os.makedirs(runtime_dir(), exist_ok=True)
-    lock = open(os.path.join(runtime_dir(), f"{name}.lock"), "w")
+    lock = open(os.path.join(runtime_dir(), f"{name}.lock"), "a+")  # "a+": don't wipe the holder's ID
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         lock.close()
         return None
+    lock.seek(0)
+    lock.truncate()
+    lock.write(str(os.getpid()))
+    lock.flush()
     return lock
+
+
+def lock_holder(name: str) -> int | None:
+    """The process ID holding single_instance_lock(name), or None if no process holds it."""
+    try:
+        with open(os.path.join(runtime_dir(), f"{name}.lock")) as file:
+            try:
+                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:  # held: the holder wrote its ID
+                text = file.read().strip()
+                return int(text) if text.isdigit() else None
+            fcntl.flock(file, fcntl.LOCK_UN)
+            return None
+    except OSError:
+        return None

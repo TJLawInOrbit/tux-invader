@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=The Tux InVader
+GenericName=Controller Settings
+Comment=Linux control settings for the Flydigi Vader 5 Pro
+Exec=tux-invader
+Icon=tux-invader
+Terminal=false
+Categories=Game;Utility;
+X-AppImage-Version=@VERSION@

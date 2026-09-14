@@ -12,7 +12,7 @@ try:
 except ImportError:  # the settings window is optional
     QApplication = None
 
-from vader5 import config, protocol  # noqa: E402
+from vader5 import config, launch, protocol  # noqa: E402
 
 
 @unittest.skipIf(QApplication is None, "PyQt6 isn't installed")
@@ -52,15 +52,14 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertTrue(warning)
         self.assertIn("take over the controller", newer)
         self.assertFalse(text(None, False)[1])
-        self.assertEqual(self.window.windowTitle(), "The Tuxedo InVader")
+        self.assertEqual(self.window.windowTitle(), "The Tux InVader")
         self.assertTrue(self.window.firmware_label.text().startswith("Firmware:"))
 
     def test_opening_the_app_starts_the_tray_icon(self):
         calls = []
         self.assertTrue(self.module.start_tray(spawn=lambda command, **options: calls.append((command, options))))
-        self.assertEqual(calls[0][0], [self.module.TRAY_PROGRAM])
+        self.assertEqual(calls[0][0], launch.command("tray"))
         self.assertTrue(calls[0][1]["start_new_session"])  # keeps running after the window closes
-        self.assertTrue(os.path.exists(self.module.TRAY_PROGRAM))
 
         def missing(command, **options):
             raise FileNotFoundError(command[0])

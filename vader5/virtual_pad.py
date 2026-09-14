@@ -17,6 +17,11 @@ NAME = "Microsoft X-Box One Elite 2 pad"  # what the kernel's xpad driver calls 
 VENDOR_ID = 0x045E
 PRODUCT_ID = 0x0B00
 
+# The Elite paddles' key codes. Older evdev builds (like the portable one in the AppImage) don't name them.
+BTN_GRIPL, BTN_GRIPR, BTN_GRIPL2, BTN_GRIPR2 = (
+    getattr(e, name, code) for name, code in (("BTN_GRIPL", 0x224), ("BTN_GRIPR", 0x225), ("BTN_GRIPL2", 0x226), ("BTN_GRIPR2", 0x227))
+)
+
 # Vader 5 Pro button -> evdev key code. LT/RT press bits aren't sent; the analog triggers are.
 BUTTON_CODES = {
     "A": e.BTN_A, "B": e.BTN_B, "X": e.BTN_X, "Y": e.BTN_Y,
@@ -25,7 +30,7 @@ BUTTON_CODES = {
     "UP": e.BTN_DPAD_UP, "DOWN": e.BTN_DPAD_DOWN, "LEFT": e.BTN_DPAD_LEFT, "RIGHT": e.BTN_DPAD_RIGHT,
     # Back buttons -> Elite paddles P1-P4 as Steam shows them. SDL numbers the paddles
     # BTN_GRIPR, BTN_GRIPL, BTN_GRIPR2, BTN_GRIPL2 as paddle 1-4 (checked in Steam's controller settings).
-    "M1": e.BTN_GRIPR, "M2": e.BTN_GRIPL, "M3": e.BTN_GRIPR2, "M4": e.BTN_GRIPL2,
+    "M1": BTN_GRIPR, "M2": BTN_GRIPL, "M3": BTN_GRIPR2, "M4": BTN_GRIPL2,
     # No Xbox equivalent: extra joystick buttons that Steam and some games can still bind.
     "C": e.BTN_TRIGGER_HAPPY1, "Z": e.BTN_TRIGGER_HAPPY2,
     "LM": e.BTN_TRIGGER_HAPPY3, "RM": e.BTN_TRIGGER_HAPPY4,

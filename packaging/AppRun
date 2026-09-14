@@ -1,0 +1,7 @@
+#!/bin/bash
+# The Tux InVader: runs the app with the Python bundled in this AppImage.
+APPDIR="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+export SSL_CERT_FILE="$APPDIR/opt/_internal/certs.pem"
+# Don't let the system's Python or Qt plugins mix with the bundled ones.
+unset PYTHONHOME PYTHONPATH QT_PLUGIN_PATH
+exec "$APPDIR/opt/python3.12/bin/python3.12" -I -m vader5 "$@"

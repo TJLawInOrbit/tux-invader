@@ -42,5 +42,13 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(set(virtual_pad.neutral_values()), set(virtual_pad.evdev_values(state())))
 
 
+
+class PaddleCodeTests(unittest.TestCase):
+    def test_paddles_use_the_kernel_codes_even_if_evdev_does_not_name_them(self):
+        from vader5 import virtual_pad
+        codes = {name: virtual_pad.BUTTON_CODES[name] for name in ("M1", "M2", "M3", "M4")}
+        self.assertEqual(codes, {"M1": 0x225, "M2": 0x224, "M3": 0x227, "M4": 0x226})  # GRIPR, GRIPL, GRIPR2, GRIPL2
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,12 +20,13 @@ from PyQt6.QtCore import QTimer, qEnvironmentVariable
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QStyle, QSystemTrayIcon
 
-from . import APP_NAME
+from . import APP_NAME, launch
 from . import status as status_file
 
 LOW_BATTERY_PERCENT = 20
 REFRESH_MS = 2000
 OPEN_SETTINGS_GAP_S = 1.5  # clicks closer together than this don't start another launch
+LOCK_WAIT_S = 3.0  # how long a new tray icon waits for an older one that's still closing
 SERVICE = "vader5-pad.service"
 STATUS_LINES = 4
 
@@ -83,7 +84,7 @@ class LowBatteryWarner:
 class Tray:
     def __init__(self, status_path: str | None = None):
         self.status_path = status_path
-        base = QIcon.fromTheme("input-gaming")
+        base = QIcon(launch.ICON_FILE) if os.path.exists(launch.ICON_FILE) else QIcon.fromTheme("input-gaming")
         if base.isNull():
             base = QApplication.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         self.icon_active = base
@@ -138,14 +139,12 @@ class Tray:
             return
         self._last_open = now
         env = dict(os.environ)
-        package_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, [package_parent, env.get("PYTHONPATH")]))
         # KDE hands the tray a one-time token with each click; the window needs it to come to the front
         token = qEnvironmentVariable("XDG_ACTIVATION_TOKEN")
         if token:
             env["XDG_ACTIVATION_TOKEN"] = token
             os.unsetenv("XDG_ACTIVATION_TOKEN")
-        subprocess.Popen([sys.executable, "-m", "vader5.settings_window"], env=env, start_new_session=True)
+        subprocess.Popen(launch.command("settings"), env=env, start_new_session=True)
 
     def toggle_service(self) -> None:
         command = "stop" if self.view.service_running else "start"
@@ -155,12 +154,16 @@ class Tray:
 
 def main(argv: list[str] | None = None) -> int:
     lock = status_file.single_instance_lock("vader5-tray")
+    deadline = time.monotonic() + LOCK_WAIT_S
+    while lock is None and time.monotonic() < deadline:  # e.g. setup just asked the old one to quit
+        time.sleep(0.1)
+        lock = status_file.single_instance_lock("vader5-tray")
     if lock is None:
         print("vader5-tray: already running", file=sys.stderr)
         return 1
     app = QApplication([sys.argv[0], *(sys.argv[1:] if argv is None else argv)])
     app.setApplicationName(APP_NAME)
-    app.setDesktopFileName("vader5-tray")
+    app.setDesktopFileName("vader5-settings")  # the app's menu entry, so the desktop knows its name and icon
     app.setQuitOnLastWindowClosed(False)
     signal.signal(signal.SIGTERM, lambda *_: app.quit())
     if not QSystemTrayIcon.isSystemTrayAvailable():

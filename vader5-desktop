@@ -1,67 +1,23 @@
 #!/usr/bin/env bash
-# Add The Tuxedo InVader to your desktop: one app menu entry (it opens the settings window and the tray
+# Add The Tux InVader to your desktop: one app menu entry (it opens the settings window and the tray
 # icon), and the tray icon at every login. No root needed; "uninstall" removes it all again.
 set -euo pipefail
 
 PROJECT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
-APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-AUTOSTART_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
-SETTINGS_ENTRY="$APPS_DIR/vader5-settings.desktop"
-TRAY_ENTRY="$APPS_DIR/vader5-tray.desktop"
-TRAY_AUTOSTART="$AUTOSTART_DIR/vader5-tray.desktop"
 
 usage() {
-    cat <<EOF
+    cat <<USAGE
 Usage: $0 <command>
 
-  install    add "The Tuxedo InVader" to your app menu (it opens the settings window and the tray
+  install    add "The Tux InVader" to your app menu (it opens the settings window and the tray
              icon), and start the tray icon now and every time you log in
   uninstall  remove them and close the tray icon
-EOF
-}
-
-# A quoted Exec= argument: the desktop entry spec needs quotes around paths with spaces, and % doubled.
-exec_path() {
-    local path=${1//%/%%}
-    printf '"%s"' "${path//\"/\\\"}"
-}
-
-write_entry() {  # file, program, name, comment, extra lines
-    mkdir -p "$(dirname "$1")"
-    cat > "$1" <<EOF
-[Desktop Entry]
-Type=Application
-Name=$3
-Comment=$4
-Exec=$(exec_path "$PROJECT_DIR/$2")
-Icon=input-gaming
-Terminal=false
-$5
-EOF
-}
-
-refresh_menu() {
-    update-desktop-database "$APPS_DIR" 2>/dev/null || true
+USAGE
 }
 
 case "${1:-}" in
-    install)
-        write_entry "$SETTINGS_ENTRY" vader5-settings "The Tuxedo InVader" \
-            "Linux control settings for the Flydigi Vader 5 Pro" \
-            "$(printf 'GenericName=Controller Settings\nCategories=Game;Utility;\nKeywords=tuxedo;invader;flydigi;vader;controller;gamepad;gyro;\nStartupWMClass=vader5-settings')"
-        rm -f "$TRAY_ENTRY"  # older versions had a second menu entry just for the tray icon
-        write_entry "$TRAY_AUTOSTART" vader5-tray "The Tuxedo InVader" \
-            "Battery and status of the Flydigi Vader 5 Pro in the system tray" ""
-        refresh_menu
-        setsid -f "$PROJECT_DIR/vader5-tray" >/dev/null 2>&1 </dev/null || true  # does nothing if already running
-        echo "Added \"The Tuxedo InVader\" to your app menu (it opens the settings window and the tray icon); the tray icon also starts at login."
-        ;;
-    uninstall)
-        rm -f "$SETTINGS_ENTRY" "$TRAY_ENTRY" "$TRAY_AUTOSTART"
-        refresh_menu
-        pkill -f -- "vader5-tray" 2>/dev/null || true
-        echo "Removed The Tuxedo InVader menu entries and the tray icon."
-        ;;
+    install) "$PROJECT_DIR/tux-invader" setup --only menu ;;
+    uninstall) "$PROJECT_DIR/tux-invader" uninstall --only menu ;;
     -h|--help) usage ;;
     *) usage; exit 1 ;;
 esac

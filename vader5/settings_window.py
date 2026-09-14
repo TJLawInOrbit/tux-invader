@@ -1,4 +1,4 @@
-"""Settings window for The Tuxedo InVader, the Vader 5 Pro app.
+"""Settings window for The Tux InVader, the Vader 5 Pro app.
 
     ./vader5-settings
 
@@ -11,20 +11,20 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import socket as sockets
 import subprocess
 import sys
 import time
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QColor
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from PyQt6.QtCore import QProcess, QSocketNotifier, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QCloseEvent, QColor, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
     QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea,
     QSlider, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from . import APP_NAME, TAGLINE, config, protocol
+from . import APP_NAME, TAGLINE, config, install, launch, protocol
 from . import led as lighting
 from . import status as status_file
 from .config import NONE, ConfigError, KeyCombo, Profile, Settings
@@ -33,7 +33,6 @@ from .games import installed_steam_games
 from .virtual_pad import BUTTON_CODES
 
 SERVICE = "vader5-pad.service"
-TRAY_PROGRAM = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "vader5-tray")
 KEY = "__keyboard__"  # combo box choice that uses the text field
 
 UI_ORDER = (
@@ -391,6 +390,9 @@ class SettingsWindow(QMainWindow):
         self.service_status = QLabel()
         self.start_button = QPushButton("Start")
         self.stop_button = QPushButton("Stop")
+        self.setup_button = QPushButton("Set up…")
+        self.setup_button.setToolTip("Installs the permissions rule (asks for your password once), the background "
+                                     "service and the app menu entry")
         self.autostart = QCheckBox("Start automatically when I log in")
         grid.addWidget(QLabel("Controller:"), 0, 0)
         grid.addWidget(self.controller_status, 0, 1, 1, 3)
@@ -398,10 +400,12 @@ class SettingsWindow(QMainWindow):
         grid.addWidget(self.service_status, 1, 1)
         grid.addWidget(self.start_button, 1, 2)
         grid.addWidget(self.stop_button, 1, 3)
-        grid.addWidget(self.autostart, 2, 1, 1, 3)
+        grid.addWidget(self.autostart, 2, 1, 1, 2)
+        grid.addWidget(self.setup_button, 2, 3)
         grid.setColumnStretch(1, 1)
         self.start_button.clicked.connect(lambda: self._service("start"))
         self.stop_button.clicked.connect(lambda: self._service("stop"))
+        self.setup_button.clicked.connect(self.run_setup)
         self.autostart.clicked.connect(lambda checked: self._service("enable" if checked else "disable"))
         return box
 
@@ -761,6 +765,22 @@ class SettingsWindow(QMainWindow):
                   else "Saved. Start the background service to use them.", OK_STYLE)
         return True
 
+    def run_setup(self) -> None:
+        """Run the one-time setup in its own process, so the window stays responsive during the password prompt."""
+        self.setup_button.setEnabled(False)
+        self._say("Setting up… you may be asked for your password once, for the permissions rule.", HINT_STYLE)
+        self._setup_process = QProcess(self)
+        self._setup_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self._setup_process.finished.connect(self._setup_finished)
+        program, *arguments = launch.command("setup")
+        self._setup_process.start(program, arguments)
+
+    def _setup_finished(self, code: int, _status) -> None:
+        output = bytes(self._setup_process.readAll()).decode(errors="replace").strip()
+        self.setup_button.setEnabled(True)
+        self._say(output or ("Setup finished." if code == 0 else "Setup didn't finish."), OK_STYLE if code == 0 else ERROR_STYLE)
+        self.refresh_status()
+
     def refresh_status(self) -> None:
         current = status_file.read()
         connected = bool(current and current.get("connected") and current.get("firmware"))
@@ -775,13 +795,17 @@ class SettingsWindow(QMainWindow):
             self.service_status.setText("(not managed here)")
             for widget in (self.start_button, self.stop_button, self.autostart):
                 widget.setEnabled(False)
+            self.setup_button.setVisible(False)
             return
         active, enabled = self._systemctl("is-active"), self._systemctl("is-enabled")
         installed = enabled not in ("", "not-found")
-        self.service_status.setText(
-            {"active": "Running", "activating": "Starting…", "failed": "Stopped after an error"}.get(active, "Stopped")
-            if installed else "Not installed (run ./vader5-service install)"
-        )
+        rule = install.rule_installed()
+        text = ({"active": "Running", "activating": "Starting…", "failed": "Stopped after an error"}.get(active, "Stopped")
+                if installed else "Not set up yet: click Set up")
+        if installed and not rule:
+            text += " · the permissions rule is missing or outdated: click Set up"
+        self.service_status.setText(text)
+        self.setup_button.setVisible(not (installed and rule))
         self.start_button.setEnabled(installed and active != "active")
         self.stop_button.setEnabled(installed and active == "active")
         self.autostart.setEnabled(installed)
@@ -821,19 +845,20 @@ def instance_socket_path() -> str:
 
 def forward_to_running_window(path: str, wait_s: float = 3.0) -> bool:
     """Ask an already open settings window to come to the front. Returns False if none answers."""
+    # KDE only brings a window to the front with the activation token from the click that asked for it
+    message = f"show {os.environ.get('XDG_ACTIVATION_TOKEN', '')}\n".encode()
     deadline = time.monotonic() + wait_s
     while True:
-        socket = QLocalSocket()
-        socket.connectToServer(path)
-        if socket.waitForConnected(300):
-            # KDE only brings a window to the front with the activation token from the click that asked for it
-            socket.write(f"show {os.environ.get('XDG_ACTIVATION_TOKEN', '')}\n".encode())
-            socket.waitForBytesWritten(500)
-            socket.disconnectFromServer()
+        try:
+            with sockets.socket(sockets.AF_UNIX, sockets.SOCK_STREAM) as client:
+                client.settimeout(0.5)
+                client.connect(path)
+                client.sendall(message)
             return True
-        if time.monotonic() >= deadline:  # the first window may still be starting up
-            return False
-        time.sleep(0.1)
+        except OSError:
+            if time.monotonic() >= deadline:  # the first window may still be starting up
+                return False
+            time.sleep(0.1)
 
 
 class SingleInstance:
@@ -841,51 +866,65 @@ class SingleInstance:
 
     def __init__(self, window: QMainWindow, path: str):
         self.window = window
-        QLocalServer.removeServer(path)  # a socket left behind by a crash; only the lock holder gets here
-        self.server = QLocalServer()
-        if not self.server.listen(path):
-            print(f"vader5-settings: later launches can't reach this window ({self.server.errorString()})",
-                  file=sys.stderr)
-        self.server.newConnection.connect(self._accept)
+        self.path = path
+        self.notifier: QSocketNotifier | None = None
+        self.server = sockets.socket(sockets.AF_UNIX, sockets.SOCK_STREAM)
+        try:
+            if os.path.exists(path):
+                os.unlink(path)  # a socket left behind by a crash; only the lock holder gets here
+            self.server.bind(path)
+            self.server.listen(4)
+            self.server.setblocking(False)
+        except OSError as error:
+            print(f"vader5-settings: later launches can't reach this window ({error})", file=sys.stderr)
+            return
+        self.notifier = QSocketNotifier(self.server.fileno(), QSocketNotifier.Type.Read)
+        self.notifier.activated.connect(self._accept)
 
-    def _accept(self) -> None:
-        while self.server.hasPendingConnections():
-            socket = self.server.nextPendingConnection()
-            socket.readyRead.connect(lambda s=socket: self._handle(s))
-            if socket.bytesAvailable():
-                self._handle(socket)
+    def _accept(self, *_) -> None:
+        while True:
+            try:
+                connection, _ = self.server.accept()
+            except OSError:  # nothing more waiting
+                return
+            with connection:
+                connection.settimeout(0.5)
+                try:
+                    message = connection.recv(4096).decode(errors="replace").strip()
+                except OSError:
+                    continue
+            if message.startswith("show"):
+                self._show(message[len("show"):].strip())
 
-    def _handle(self, socket: QLocalSocket) -> None:
-        message = bytes(socket.readAll()).decode(errors="replace").strip()
-        if message.startswith("show"):
-            token = message[len("show"):].strip()
-            if token:
-                os.environ["XDG_ACTIVATION_TOKEN"] = token  # Qt uses it for the next activation
-            if self.window.isMinimized():
-                self.window.showNormal()
-            self.window.show()
-            self.window.raise_()
-            self.window.activateWindow()
-        socket.disconnectFromServer()
+    def _show(self, token: str) -> None:
+        if token:
+            os.environ["XDG_ACTIVATION_TOKEN"] = token  # Qt uses it for the next activation
+        if self.window.isMinimized():
+            self.window.showNormal()
+        self.window.show()
+        self.window.raise_()
+        self.window.activateWindow()
 
     def close(self) -> None:
+        if self.notifier is not None:
+            self.notifier.setEnabled(False)
         self.server.close()
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
 
 
-def start_tray(program: str = TRAY_PROGRAM, spawn=subprocess.Popen) -> bool:
+def start_tray(spawn=subprocess.Popen) -> bool:
     """Start the tray icon along with the window. If it's already running, the new one quits by itself."""
-    try:
-        spawn([program], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-              start_new_session=True)
-    except OSError:
-        return False
-    return True
+    return launch.start_detached(launch.command("tray"), spawn)
 
 
 def main(argv: list[str] | None = None) -> int:
     app = QApplication([sys.argv[0], *(sys.argv[1:] if argv is None else argv)])
     app.setApplicationName(APP_NAME)
     app.setDesktopFileName("vader5-settings")
+    app.setWindowIcon(QIcon(launch.ICON_FILE))
     start_tray()
     lock = status_file.single_instance_lock("vader5-settings")
     if lock is None:  # already open: bring that window to the front instead

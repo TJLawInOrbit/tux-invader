@@ -76,7 +76,7 @@ def detach_xpad(hidraw_path: str) -> str | None:
 
     Returns the USB device directory to pass to reattach_xpad() - also when xpad was already
     detached (e.g. after a crash) - or None if interface 0 isn't an xpad interface.
-    Raises PermissionError without access to the USB device (see install/70-vader5-pro.rules).
+    Raises PermissionError without access to the USB device (see vader5/data/70-vader5-pro.rules).
     """
     usb_dir = usb_device_dir(hidraw_path)
     driver = _interface_driver(usb_dir, XPAD_INTERFACE)

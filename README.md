@@ -1,4 +1,4 @@
-# The Tuxedo InVader
+# The Tux InVader
 
 Linux control settings for the Flydigi Vader 5 Pro.
 
@@ -10,6 +10,40 @@ accelerometer and rumble working on Linux, without Flydigi software, kernel modu
 The controller has a vendor HID interface (`/dev/hidrawN`, usage page `0xFFA0`). After a short
 handshake, a "test mode" command makes it stream a complete input report at about 500 Hz. The app
 turns test mode on while it runs and switches it off again when it exits.
+
+## Install the AppImage
+
+1. Download `The_Tux_InVader-0.4-x86_64.AppImage`, make it executable (`chmod +x`, or the file's
+   Properties → "Allow executing") and open it.
+2. In the settings window, click **Set up…**. It copies the app to `~/Applications`, installs the
+   permissions rule (asks for your password once), and adds the background service, the app menu entry
+   and the tray icon. From a terminal the same is `./The_Tux_InVader-0.4-x86_64.AppImage setup`.
+3. Unplug the controller (or the dongle) and plug it back in, and press the Home button.
+
+It runs on 64-bit PCs with glibc 2.34 or newer (Ubuntu and Pop!_OS 22.04 and later, Debian 12, Fedora,
+current Arch-based distros) and systemd. The tray icon needs a desktop with a system tray. On an X11
+session Qt also needs `libxcb-cursor0` (Ubuntu and Debian: `sudo apt install libxcb-cursor0`); Wayland
+sessions don't.
+
+To update, open the new AppImage and click **Set up…** again. To remove it:
+`~/Applications/The_Tux_InVader.AppImage uninstall` (add `--remove-rule` and `--remove-app` to also
+remove the permissions rule and the app itself). Your settings in `~/.config/vader5` are kept.
+
+The AppImage has the same commands as `./tux-invader` in the project folder: `settings` (the
+default), `tray`, `pad`, `viewer`, `config`, `setup` and `uninstall`; `--help` lists them.
+
+### Build the AppImage
+
+```sh
+packaging/build-appimage.sh    # writes dist/The_Tux_InVader-<version>-x86_64.AppImage
+```
+
+It needs `curl` and `objdump` (binutils); `rsvg-convert` is used for the icon if it's there. It
+downloads a portable Python 3.12, PyQt6, evdev, appimagetool and the AppImage runtime into `build/`,
+all pinned to exact versions and checked by SHA-256, and leaves out the parts of Qt the app doesn't use.
+
+To check the newest build on other distros (Ubuntu 22.04 and 24.04, Debian 12, Fedora, Arch) with
+Podman, no sudo needed: `packaging/test-distros.sh` (or name one, like `packaging/test-distros.sh debian:12`).
 
 ## Run the live viewer
 
@@ -84,7 +118,7 @@ The easiest way is the settings window:
 ```
 
 To open it from your app menu instead of a terminal, run `./vader5-desktop install` once. It adds
-"The Tuxedo InVader" to the app menu and starts the tray icon at login (remove it all with
+"The Tux InVader" to the app menu and starts the tray icon at login (remove it all with
 `./vader5-desktop uninstall`). Opening the app also starts the tray icon if it isn't running yet.
 
 Only one settings window opens at a time: launching it again (from the tray or the app menu) brings
@@ -223,18 +257,21 @@ and its virtual devices keep their original names, so existing setups keep worki
 
 ## Requirements
 
-- Python 3.10+ (standard library only)
+- From the project folder: Python 3.10+, python-evdev, and PyQt6 for the settings window and tray icon
+  (the AppImage bundles all of these)
 - Read/write access to the controller's hidraw node. Steam's `60-steam-input.rules` already grants
   this for Flydigi devices to the logged-in user.
 
 ### Permissions
 
-`install/70-vader5-pro.rules` gives the logged-in user access to this controller only: its hidraw
+`vader5/data/70-vader5-pro.rules` gives the logged-in user access to this controller's hidraw
 interface (inputs, rumble, test mode) and its USB device, which lets `vader5-pad` remove the basic
-Xbox pad while it runs. Steam's own udev rules grant the same kind of access for its controllers.
+Xbox pad while it runs, and to `/dev/uinput`, which it needs to create the virtual controller, keyboard
+and mouse. Steam's own udev rules grant the same kind of access. `setup` installs the rule for you;
+by hand:
 
 ```sh
-sudo install -m 644 install/70-vader5-pro.rules /etc/udev/rules.d/
+sudo install -m 644 vader5/data/70-vader5-pro.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 ```
 
@@ -267,6 +304,10 @@ python3 -m unittest discover tests
 | `vader5/status.py` | Status file shared by the service, tray and settings window |
 | `vader5/games.py` | Finds installed Steam games and which profile's game is running |
 | `vader5/led.py` | LED strip effects: builds the controller's LED data |
+| `vader5/launch.py`, `tux-invader` | One command for every part of the app (the AppImage runs this) |
+| `vader5/install.py` | Setup and uninstall: permissions rule, background service, app menu, tray at login |
+| `vader5/data/` | The permissions rule and the app icon |
+| `packaging/` | AppImage build script, launcher and desktop entry |
 | `vader5-desktop` | Adds the app menu entry and starts the tray icon at login |
 | `vader5/pad.py` | Runs the virtual controller: hides the basic pad, forwards rumble, reconnects |
 | `vader5-service` | Installs and controls `vader5-pad` as a systemd user service |

@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>The Tux InVader</title>
+  <defs>
+    <linearGradient id="jacket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#40434b"/>
+      <stop offset="1" stop-color="#141518"/>
+    </linearGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d3d4d8"/>
+    </linearGradient>
+    <linearGradient id="beak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7b53e"/>
+      <stop offset="1" stop-color="#d9822b"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e6b566"/>
+      <stop offset="0.5" stop-color="#b98134"/>
+      <stop offset="1" stop-color="#7a521f"/>
+    </linearGradient>
+    <radialGradient id="stick" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#34363c"/>
+      <stop offset="1" stop-color="#040405"/>
+    </radialGradient>
+    <radialGradient id="grey" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#e4e6ea"/>
+      <stop offset="1" stop-color="#9a9da4"/>
+    </radialGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#454952"/>
+      <stop offset="0.55" stop-color="#16171b"/>
+      <stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <clipPath id="left-lens"><path d="M6 44 L117 52 L113 84 Z"/></clipPath>
+    <clipPath id="right-lens"><path d="M250 44 L139 52 L143 84 Z"/></clipPath>
+  </defs>
+
+  <!-- bumpers peeking out behind the shoulders -->
+  <path d="M30.5 113.3 Q40 104.5 60 103" fill="none" stroke="#0a0b0d" stroke-width="15" stroke-linecap="round"/>
+  <path d="M30.5 113.3 Q40 104.5 60 103" fill="none" stroke="#4a4d55" stroke-width="9" stroke-linecap="round"/>
+  <path d="M225.5 113.3 Q216 104.5 196 103" fill="none" stroke="#0a0b0d" stroke-width="15" stroke-linecap="round"/>
+  <path d="M225.5 113.3 Q216 104.5 196 103" fill="none" stroke="#4a4d55" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- the penguin: round head, sloped shoulders, a squarish tuxedo body -->
+  <path d="M128 14 C170 14 186 40 186 70 L186 94 C186 104 196 108 210 110 Q236 114 236 146 L236 214 Q236 246 204 246
+           L52 246 Q20 246 20 214 L20 146 Q20 114 46 110 C60 108 70 104 70 94 L70 70 C70 40 86 14 128 14 Z"
+        fill="url(#jacket)" stroke="#0a0b0d" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- white face running down into the shirt front -->
+  <path d="M90 78 Q128 62 166 78 Q170 100 154 112 L166 244 H90 L102 112 Q86 100 90 78 Z" fill="url(#white)"/>
+  <path d="M102 112 L90 244 M154 112 L166 244" stroke="#0a0b0d" stroke-width="2.5" fill="none"/>
+
+  <!-- bow tie and studs -->
+  <path d="M128 136 L106 125 Q100 136 106 147 Z" fill="#0d0e10"/>
+  <path d="M128 136 L150 125 Q156 136 150 147 Z" fill="#0d0e10"/>
+  <rect x="121.5" y="129.5" width="13" height="13" rx="3" fill="#2c2e34"/>
+  <circle cx="128" cy="176" r="3.4" fill="#15161a"/>
+  <circle cx="128" cy="202" r="3.4" fill="#15161a"/>
+  <circle cx="128" cy="228" r="3.4" fill="#15161a"/>
+
+  <!-- pointed shades: glossy lenses swept out past his head, with a nose bridge -->
+  <path d="M6 44 L117 52 L113 84 Z" fill="url(#lens)" stroke="#0a0b0d" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M250 44 L139 52 L143 84 Z" fill="url(#lens)" stroke="#0a0b0d" stroke-width="3.5" stroke-linejoin="round"/>
+  <!-- white shine filling the top of each lens: pointed at the tip, wider at the nose -->
+  <path d="M12 46.5 L115 54 L114.6 58.8 Z" fill="#ffffff" clip-path="url(#left-lens)"/>
+  <path d="M244 46.5 L141 54 L141.4 58.8 Z" fill="#ffffff" clip-path="url(#right-lens)"/>
+  <path d="M6 44 L117 52 L113 84 Z" fill="none" stroke="#0a0b0d" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M250 44 L139 52 L143 84 Z" fill="none" stroke="#0a0b0d" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M116 58 Q128 50 140 58" fill="none" stroke="#0a0b0d" stroke-width="5" stroke-linecap="round"/>
+  <path d="M116 58 Q128 50 140 58" fill="none" stroke="#50535c" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- sparkle on the tip of the shades -->
+  <g fill="#ffffff" stroke="#0a0b0d" stroke-opacity="0.55" stroke-width="1" stroke-linejoin="round">
+    <path d="M240 26 Q241.8 42.2 255 44 Q241.8 45.8 240 62 Q238.2 45.8 225 44 Q238.2 42.2 240 26 Z"/>
+    <path d="M240 33 Q241.4 42.6 251 44 Q241.4 45.4 240 55 Q238.6 45.4 229 44 Q238.6 42.6 240 33 Z" transform="rotate(45 240 44)"/>
+  </g>
+  <circle cx="240" cy="44" r="3.5" fill="#ffffff"/>
+
+  <!-- beak -->
+  <path d="M103 86 H153 L128 124 Z" fill="url(#beak)" stroke="#0a0b0d" stroke-width="3.5" stroke-linejoin="round"/>
+
+  <!-- left analog stick: black, with a burnt gold ring -->
+  <circle cx="56" cy="143" r="23" fill="url(#gold)" stroke="#0a0b0d" stroke-width="3"/>
+  <circle cx="56" cy="143" r="16" fill="#0b0c0e"/>
+  <circle cx="56" cy="143" r="12.5" fill="url(#stick)"/>
+  <circle cx="56" cy="143" r="7.5" fill="none" stroke="#2a2c31" stroke-width="2.2"/>
+
+  <!-- D-pad -->
+  <path d="M59 181 H73 V193 H85 V207 H73 V219 H59 V207 H47 V193 H59 Z"
+        fill="url(#stick)" stroke="#0a0b0d" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="66" cy="200" r="3.5" fill="#0b0c0e"/>
+
+  <!-- C and Z -->
+  <g fill="url(#grey)" stroke="#0a0b0d" stroke-width="2">
+    <circle cx="215" cy="185" r="4.5"/>
+    <circle cx="226" cy="174" r="4.5"/>
+  </g>
+
+  <!-- A B X Y in light grey -->
+  <g fill="url(#grey)" stroke="#0a0b0d" stroke-width="2.5">
+    <circle cx="200" cy="132" r="9.5"/>
+    <circle cx="219" cy="151" r="9.5"/>
+    <circle cx="200" cy="170" r="9.5"/>
+    <circle cx="181" cy="151" r="9.5"/>
+  </g>
+
+  <!-- right stick: same as the left one -->
+  <circle cx="198" cy="210" r="23" fill="url(#gold)" stroke="#0a0b0d" stroke-width="3"/>
+  <circle cx="198" cy="210" r="16" fill="#0b0c0e"/>
+  <circle cx="198" cy="210" r="12.5" fill="url(#stick)"/>
+  <circle cx="198" cy="210" r="7.5" fill="none" stroke="#2a2c31" stroke-width="2.2"/>
+</svg>

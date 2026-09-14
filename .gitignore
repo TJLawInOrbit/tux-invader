@@ -4,3 +4,7 @@ __pycache__/
 
 # Personal scratch folder
 working/
+
+# AppImage build
+build/
+dist/

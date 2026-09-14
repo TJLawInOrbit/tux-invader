@@ -5,3 +5,7 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="37d7", ATTRS{idProduct}=="2401", MODE="0660
 
 # USB device: lets vader5-pad remove the basic "Generic X-Box pad" while it runs
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="37d7", ATTRS{idProduct}=="2401", MODE="0660", TAG+="uaccess"
+
+# /dev/uinput: lets vader5-pad create the virtual controller, keyboard and mouse. Steam's own rules grant
+# the same, but not every system has Steam installed.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

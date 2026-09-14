@@ -61,5 +61,21 @@ class BatteryTextTests(unittest.TestCase):
         self.assertIsNone(status.battery_text({"battery": None, "battery_percent": None}))
 
 
+
+class LockHolderTests(unittest.TestCase):
+    def test_the_lock_holder_is_found_by_its_lock(self):
+        import tempfile
+        from unittest import mock
+        from vader5 import status
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(status, "runtime_dir", lambda: folder):
+            self.assertIsNone(status.lock_holder("vader5-tray"))  # no lock file yet
+            lock = status.single_instance_lock("vader5-tray")
+            self.assertEqual(status.lock_holder("vader5-tray"), os.getpid())
+            self.assertIsNone(status.single_instance_lock("vader5-tray"))  # a second one isn't allowed...
+            self.assertEqual(status.lock_holder("vader5-tray"), os.getpid())  # ...and doesn't wipe the ID
+            lock.close()
+            self.assertIsNone(status.lock_holder("vader5-tray"))
+
+
 if __name__ == "__main__":
     unittest.main()
