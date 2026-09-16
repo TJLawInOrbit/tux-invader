@@ -17,7 +17,7 @@ import sys
 import time
 
 from PyQt6.QtCore import QProcess, QSocketNotifier, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QColor, QIcon
+from PyQt6.QtGui import QCloseEvent, QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
     QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea,
@@ -117,6 +117,95 @@ class SliderSpin(QWidget):
 
     def setValue(self, value: float) -> None:
         self.spin.setValue(value)
+
+
+def color_icon(color: tuple[int, int, int]) -> QIcon:
+    pixmap = QPixmap(14, 14)
+    pixmap.fill(QColor(*color))
+    return QIcon(pixmap)
+
+
+class ButtonColors(QWidget):
+    """Pick a controller button in the list, then click the color box to give it a flash color."""
+
+    changed = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._colors: dict[str, tuple[int, int, int]] = {}
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        self.button = QComboBox()
+        for name in UI_ORDER:
+            self.button.addItem(BUTTON_LABELS[name], name)
+        self.swatch = QPushButton()
+        self.swatch.setFixedSize(40, 26)
+        self.clear_button = QPushButton("No flash")
+        self.clear_button.setToolTip("This button doesn't light the strip")
+        row.addWidget(self.button, 1)
+        row.addWidget(self.swatch)
+        row.addWidget(self.clear_button)
+        column.addLayout(row)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
+        column.addWidget(self.summary)
+        self.button.currentIndexChanged.connect(lambda _: self._refresh())
+        self.swatch.clicked.connect(self._pick)
+        self.clear_button.clicked.connect(self._clear)
+        self._refresh()
+
+    def button_colors(self) -> tuple[tuple[str, tuple[int, int, int]], ...]:
+        return tuple((name, self._colors[name]) for name in UI_ORDER if name in self._colors)
+
+    def set_button_colors(self, pairs) -> None:
+        self._colors = dict(pairs)
+        self._refresh()
+
+    def set_color(self, name: str, color: tuple[int, int, int] | None) -> None:
+        """Give a button its flash color, or None for no flash."""
+        if color is None:
+            self._colors.pop(name, None)
+        else:
+            self._colors[name] = color
+        self._refresh()
+        self.changed.emit()
+
+    def _pick(self) -> None:
+        name = self.button.currentData()
+        chosen = QColorDialog.getColor(QColor(*self._colors.get(name, lighting.DEFAULT_COLOR)), self,
+                                       f"Flash color for {BUTTON_LABELS[name]}")
+        if chosen.isValid():
+            self.set_color(name, (chosen.red(), chosen.green(), chosen.blue()))
+
+    def _clear(self) -> None:
+        self.set_color(self.button.currentData(), None)
+
+    def _refresh(self) -> None:
+        name = self.button.currentData()
+        color = self._colors.get(name)
+        if color:
+            self.swatch.setText("")
+            self.swatch.setStyleSheet(f"background-color: {lighting.color_text(color)}; border: 1px solid gray;")
+            self.swatch.setToolTip(f"{lighting.color_text(color)} (click to change)")
+        else:
+            self.swatch.setText("+")
+            self.swatch.setStyleSheet("border: 1px dashed gray;")
+            self.swatch.setToolTip("Click to choose a flash color for this button")
+        self.clear_button.setEnabled(color is not None)
+        for index in range(self.button.count()):
+            chosen = self._colors.get(self.button.itemData(index))
+            self.button.setItemIcon(index, color_icon(chosen) if chosen else QIcon())
+        if not self._colors:
+            self.summary.setText("No buttons chosen yet: pick a button, then click the color box next to it.")
+            return
+        chips = []
+        for button, chosen in self.button_colors():
+            text = "#000000" if sum(chosen) > 380 else "#ffffff"
+            chips.append(f'<span style="background-color: {lighting.color_text(chosen)}; color: {text};">'
+                         f"&nbsp;{button}&nbsp;</span>")
+        self.summary.setText("Flashing: " + " ".join(chips))
 
 
 class ColorList(QWidget):
@@ -520,7 +609,17 @@ class SettingsWindow(QMainWindow):
         form.addRow("Brightness:", self.led_brightness)
         form.addRow("Speed:", self.led_speed)
         form.addRow("", hint("Speed goes from 1 (slow) to 10 (fast)."))
+        self.led_specific = QCheckBox("Specific buttons")
+        self.led_button_colors = ButtonColors()
+        self.led_specific_hint = hint("Only the buttons you give a color flash, each in its own color. The colors "
+                                      "above aren't used while this is on.")
+        form.addRow("", self.led_specific)
+        form.addRow("Buttons:", self.led_button_colors)
+        form.addRow("", self.led_specific_hint)
+        self._led_form = form
         self.led_effect.currentIndexChanged.connect(lambda _: (self._sync_led_controls(trim=True), self._changed()))
+        self.led_specific.toggled.connect(lambda _: (self._sync_led_controls(trim=False), self._changed()))
+        self.led_button_colors.changed.connect(self._changed)
         self.led_colors.changed.connect(self._changed)
         for widget in (self.led_brightness, self.led_speed):
             widget.valueChanged.connect(lambda _: self._changed())
@@ -535,7 +634,12 @@ class SettingsWindow(QMainWindow):
         self.led_effect_hint.setText(text)
         if effect.max_colors:
             self.led_colors.set_limits(effect.min_colors, effect.max_colors, trim)
-        self.led_colors.setEnabled(effect.max_colors > 0)
+        flash = effect.name == "press_flash"
+        specific = flash and self.led_specific.isChecked()
+        self.led_colors.setEnabled(effect.max_colors > 0 and not specific)
+        self._led_form.setRowVisible(self.led_specific, flash)
+        self._led_form.setRowVisible(self.led_button_colors, specific)
+        self._led_form.setRowVisible(self.led_specific_hint, specific)
         self.led_brightness.setEnabled(effect.name not in ("controller", "off"))
         self.led_speed.setEnabled(effect.animated)
 
@@ -562,6 +666,8 @@ class SettingsWindow(QMainWindow):
         self.led_colors.set_colors(lights.colors)
         self.led_brightness.setValue(lights.brightness)
         self.led_speed.setValue(lights.speed)
+        self.led_specific.setChecked(lights.specific_buttons)
+        self.led_button_colors.set_button_colors(lights.button_colors)
         self._sync_led_controls(trim=False)
         self._loading = False
         self._changed()
@@ -592,6 +698,7 @@ class SettingsWindow(QMainWindow):
         settings.led = lighting.LedSettings(
             self.led_effect.currentData(), self.led_colors.colors(),
             int(round(self.led_brightness.value())), int(round(self.led_speed.value())),
+            self.led_specific.isChecked(), self.led_button_colors.button_colors(),
         )
         return config.parse(config.render(settings))
 

@@ -53,8 +53,8 @@ EFFECTS: dict[str, Effect] = {effect.name: effect for effect in (
     # the strip stays off (6) and PressFlash lights it while a button is held.
     Effect("press_flash", "Flash on button press", 6, 1, 4, False,
            hint="Lights up while you press a button and goes dark when you let go. With several colors, each press uses "
-                "the next one (up to 4). The app does this, so it only works while the background service "
-                "is running."),
+                "the next one (up to 4); with Specific buttons, only the buttons you choose flash, each in its own "
+                "color. The app does this, so it only works while the background service is running."),
 )}
 
 
@@ -64,6 +64,8 @@ class LedSettings:
     colors: tuple[tuple[int, int, int], ...] = (DEFAULT_COLOR,)
     brightness: int = 50  # 0-100
     speed: int = 5  # 1 (slow) - 10 (fast)
+    specific_buttons: bool = False  # press_flash: only the buttons in button_colors flash, each in its own color
+    button_colors: tuple[tuple[str, tuple[int, int, int]], ...] = ()  # (button name, color), in button order
 
 
 def parse_color(text: str) -> tuple[int, int, int] | None:
@@ -93,7 +95,10 @@ def geometry(blob: bytes) -> tuple[int, int]:
 def describe(lights: LedSettings) -> str:
     effect = EFFECTS[lights.effect]
     parts = [effect.label]
-    if effect.max_colors:
+    if lights.effect == "press_flash" and lights.specific_buttons:
+        parts.append("specific buttons: " + (" ".join(f"{name} {color_text(color)}" for name, color in lights.button_colors)
+                                              or "none chosen"))
+    elif effect.max_colors:
         parts.append(" ".join(color_text(color) for color in lights.colors[:effect.max_colors]))
     if lights.effect not in ("controller", "off"):
         parts.append(f"brightness {lights.brightness}")
@@ -178,44 +183,59 @@ FLASH_FADE = (0.0,)  # brightness steps after the button is let go: straight to 
 
 
 class PressFlash:
-    """"Flash on button press", done by the app with the instant-color command: the strip lights up while
-    any button is held and goes dark when it's let go; each new press uses the next of up to 4 colors.
+    """"Flash on button press", done by the app with the instant-color command: the strip lights up while a
+    button is held and goes dark when it's let go. Normally any button flashes, each new press in the next of
+    up to 4 colors; with specific buttons, only the chosen buttons flash, each in its own color.
     (The controller's own press-feedback effect only pulses by itself, with or without test mode.)"""
 
     def __init__(self):
-        self.colors: list[tuple[int, int, int]] = []  # empty = another effect is selected
+        self.colors: list[tuple[int, int, int]] = []  # colors taking turns, for any button
+        self.button_colors: dict[str, tuple[int, int, int]] = {}  # or: button -> its own color
         self._index = -1  # color of the current or last press
         self._was_pressed = False
+        self._held: list[str] = []  # held buttons that have a color, in the order they were pressed
+        self._current: tuple[int, int, int] | None = None  # the color the strip shows or fades from
         self._fade_step = len(FLASH_FADE)
         self._sent: tuple[int, int, int] | None = None
         self._next_send = 0.0
 
     def configure(self, lights: LedSettings) -> None:
         """Call whenever the LED settings change (they reset the strip)."""
+        self.colors, self.button_colors = [], {}
         if lights.effect == "press_flash":
-            colors = lights.colors[:FLASH_MAX_COLORS] or (DEFAULT_COLOR,)
-            self.colors = [_scaled(color, lights.brightness / 100) for color in colors]
-        else:
-            self.colors = []
-        self._index, self._was_pressed = -1, False
+            level = lights.brightness / 100
+            if lights.specific_buttons:
+                self.button_colors = {name: _scaled(color, level) for name, color in lights.button_colors}
+            else:
+                self.colors = [_scaled(color, level) for color in lights.colors[:FLASH_MAX_COLORS] or (DEFAULT_COLOR,)]
+        self._index, self._was_pressed, self._held, self._current = -1, False, [], None
         self._fade_step, self._sent = len(FLASH_FADE), None
 
-    def update(self, pressed: bool, now: float) -> tuple[int, int, int] | None:
-        """The color to show right now, or None when nothing needs sending."""
-        if not self.colors:
+    def update(self, buttons: frozenset[str], now: float) -> tuple[int, int, int] | None:
+        """The color to show right now for the buttons held, or None when nothing needs sending."""
+        if not self.colors and not self.button_colors:
             return None
-        if pressed:
-            if not self._was_pressed:  # a new press: next color
-                self._index = (self._index + 1) % len(self.colors)
-            self._was_pressed = True
-            wanted, self._fade_step = self.colors[self._index], 0
+        wanted = self._color_for(buttons)
+        if wanted is not None:
+            self._current, self._fade_step = wanted, 0
         else:
-            self._was_pressed = False
-            if now < self._next_send or self._fade_step >= len(FLASH_FADE):
+            if self._current is None or now < self._next_send or self._fade_step >= len(FLASH_FADE):
                 return None
-            wanted = _scaled(self.colors[self._index], FLASH_FADE[self._fade_step])
+            wanted = _scaled(self._current, FLASH_FADE[self._fade_step])
             self._fade_step += 1
         if wanted == self._sent:
             return None
         self._sent, self._next_send = wanted, now + FLASH_STEP_S
         return wanted
+
+    def _color_for(self, buttons: frozenset[str]) -> tuple[int, int, int] | None:
+        """The lit color for these held buttons, or None if none of them lights the strip."""
+        if self.button_colors:  # the most recently pressed button with a color wins
+            self._held = [name for name in self._held if name in buttons]
+            self._held += sorted(name for name in buttons if name in self.button_colors and name not in self._held)
+            return self.button_colors[self._held[-1]] if self._held else None
+        pressed = bool(buttons)
+        if pressed and not self._was_pressed:  # a new press: next color
+            self._index = (self._index + 1) % len(self.colors)
+        self._was_pressed = pressed
+        return self.colors[self._index] if pressed else None

@@ -174,6 +174,17 @@ instant-color command (`5A A5 F5 05 R G B checksum`) the moment a button is pres
 while held, and switches it off as soon as the button is let go. With up to 4 colors, each press
 uses the next one. It only works while the background service is running.
 
+Turn on **Specific buttons** to give chosen buttons their own flash color: pick a button in the list and
+click the color box next to it (**No flash** takes it off again). Only those buttons light the strip, and
+the colors above aren't used. Holding several, the one pressed last shows. In the settings file:
+
+```toml
+[led]
+effect = "press_flash"
+specific_buttons = true
+button_colors = { A = "#00ff00", B = "#ff0000", LB = "#ffaa00" }
+```
+
 ### Game profiles
 
 Different settings for different games, switched automatically while the game runs. In the settings

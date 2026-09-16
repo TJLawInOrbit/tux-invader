@@ -38,7 +38,7 @@ GYRO_SETTINGS = {  # name in the file -> GyroSettings attribute
     "invert_x": "invert_x", "invert_y": "invert_y", "tightening": "tightening_dps",
 }
 STICK_SETTINGS = ("left_deadzone", "right_deadzone")
-LED_SETTINGS = ("effect", "colors", "brightness", "speed")
+LED_SETTINGS = ("effect", "colors", "brightness", "speed", "specific_buttons", "button_colors")
 PROFILE_KEYS = {"name", "steam_app_id", "process", *SECTIONS}
 
 
@@ -229,6 +229,10 @@ def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
         changes["brightness"] = _integer(lights["brightness"], f"{prefix}[led] brightness", 0, 100)
     if "speed" in lights:
         changes["speed"] = _integer(lights["speed"], f"{prefix}[led] speed", 1, 10)
+    if "specific_buttons" in lights:
+        changes["specific_buttons"] = _boolean(lights["specific_buttons"], f"{prefix}[led] specific_buttons")
+    if "button_colors" in lights:
+        changes["button_colors"] = _button_colors(lights["button_colors"], f"{prefix}[led] button_colors")
     if changes:
         settings.led = dataclasses.replace(settings.led, **changes)
 
@@ -236,7 +240,11 @@ def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
 def _led_value(lights: lighting.LedSettings, key: str):
     """An LED setting as written in the file."""
     value = getattr(lights, key)
-    return [lighting.color_text(color) for color in value] if key == "colors" else value
+    if key == "colors":
+        return [lighting.color_text(color) for color in value]
+    if key == "button_colors":
+        return {name: lighting.color_text(color) for name, color in value}
+    return value
 
 
 def _parse_profile(table, main: Settings, index: int) -> Profile:
@@ -339,6 +347,10 @@ def render(settings: Settings) -> str:
         "# Brightness 0-100; speed 1 (slow) to 10 (fast).",
         f"brightness = {settings.led.brightness}",
         f"speed = {settings.led.speed}",
+        "# press_flash only: with specific_buttons = true, only the buttons listed in button_colors flash, each",
+        '# in its own color, and colors above aren\'t used. Button names as in [remap]: { A = "#00ff00", LB = "#ff0000" }',
+        f"specific_buttons = {_toml_value(settings.led.specific_buttons)}",
+        f"button_colors = {_toml_value(_led_value(settings.led, 'button_colors'))}",
         "",
         "[remap]",
         "# physical button = what it sends instead. It can be:",
@@ -403,6 +415,8 @@ def _quote(text: str) -> str:
 
 
 def _toml_value(value) -> str:
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{key} = {_toml_value(item)}" for key, item in value.items()) + " }" if value else "{}"
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_toml_value(item) for item in value) + "]"
     if isinstance(value, bool):
@@ -502,6 +516,19 @@ def _colors(value, where: str) -> tuple[tuple[int, int, int], ...]:
             raise ConfigError(f'{where}: {item!r} isn\'t a color; write it like "#ff8800"')
         colors.append(color)
     return tuple(colors)
+
+
+def _button_colors(value, where: str) -> tuple[tuple[str, tuple[int, int, int]], ...]:
+    if not isinstance(value, dict):
+        raise ConfigError(f'{where} should list buttons and their colors, like {{ A = "#00ff00", LB = "#ff0000" }}')
+    chosen = {}
+    for key, item in value.items():
+        name = _button(key, where, protocol.BUTTON_NAMES)
+        color = lighting.parse_color(item) if isinstance(item, str) else None
+        if color is None:
+            raise ConfigError(f'{where} {name}: {item!r} isn\'t a color; write it like "#ff8800"')
+        chosen[name] = color
+    return tuple((name, chosen[name]) for name in protocol.BUTTON_NAMES if name in chosen)
 
 
 def _int_list(value, where: str) -> list[int]:

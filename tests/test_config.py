@@ -205,6 +205,30 @@ class LedSettingsTests(unittest.TestCase):
                     config.parse(text)
                 self.assertIn(message, str(caught.exception))
 
+    def test_specific_button_colors(self):
+        settings = config.parse('[led]\neffect = "press_flash"\nspecific_buttons = true\n'
+                                'button_colors = { lb = "#FF0000", A = "00ff00", view = "#0000ff" }')
+        self.assertTrue(settings.led.specific_buttons)
+        self.assertEqual(dict(settings.led.button_colors), {"LB": (255, 0, 0), "A": (0, 255, 0), "SELECT": (0, 0, 255)})
+        self.assertEqual(config.parse(config.render(settings)), settings)
+        self.assertIn("specific buttons: A #00ff00", config.describe(settings))
+        self.assertEqual(config.Settings().led.button_colors, ())
+        cases = {
+            '[led]\nbutton_colors = { Q = "#ff0000" }': "unknown button 'Q'",
+            '[led]\nbutton_colors = { A = "red" }': "isn't a color",
+            '[led]\nbutton_colors = ["#ff0000"]': "should list buttons and their colors",
+            '[led]\nspecific_buttons = "yes"': "specific_buttons",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(config.ConfigError) as caught:
+                    config.parse(text)
+                self.assertIn(message, str(caught.exception))
+        profiled = config.parse('[led]\neffect = "press_flash"\n[[profile]]\nname = "SF6"\nsteam_app_id = 1364780\n'
+                                '[profile.led]\nspecific_buttons = true\nbutton_colors = { A = "#00ff00" }')
+        self.assertEqual(profiled.for_profile("SF6").led.button_colors, (("A", (0, 255, 0)),))
+        self.assertEqual(config.parse(config.render(profiled)), profiled)
+
     def test_game_profiles_can_have_their_own_lights(self):
         settings = config.parse('[led]\neffect = "static"\ncolors = ["#0000ff"]\n'
                                 '[[profile]]\nname = "SF6"\nsteam_app_id = 1364780\n[profile.led]\ncolors = ["#ff0000"]')

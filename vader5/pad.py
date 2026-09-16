@@ -205,7 +205,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
     lights.apply(settings.led)
     flash = PressFlash()
     flash.configure(settings.led)
-    held = False  # any button down, for "Flash on button press"
+    held = frozenset()  # buttons down, for "Flash on button press"
 
     vpad: VirtualElite | None = None
     keyboard_mouse: VirtualKeyboardMouse | None = None
@@ -239,7 +239,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
                 for state in states:
                     vpad.update(settings.for_games(state))
                     keyboard_mouse.hold(settings.keys_for(state.buttons))
-                held = any(state.buttons for state in states)  # a quick tap between two loops still counts
+                held = frozenset().union(*(state.buttons for state in states))  # a quick tap between two loops still counts
                 dx, dy, toggled = gyro.process(states, now)
                 keyboard_mouse.move(dx, dy)
                 if toggled:
@@ -256,7 +256,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
                 sent_rumble = (0, 0)
                 log("controller idle (off or asleep): virtual controller and keyboard and mouse removed")
 
-            flash_color = flash.update(held and vpad is not None, now)
+            flash_color = flash.update(held if vpad is not None else frozenset(), now)
             if flash_color is not None:
                 pad.set_led_color(*flash_color)
 

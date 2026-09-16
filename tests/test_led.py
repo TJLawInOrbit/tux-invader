@@ -9,6 +9,7 @@ from vader5 import led, pad, protocol  # noqa: E402
 
 ZONES, FRAMES = 10, 10
 RED, BLUE = (255, 0, 0), (0, 0, 255)
+HELD, NOTHING = frozenset({"A"}), frozenset()  # buttons held, for the press flash
 # the header of the LED data read from the real controller (factory rainbow, effect 7, 10 zones)
 FACTORY_HEADER = bytes.fromhex("000300000904140a0700ffffffffffffffffffff")
 FACTORY = FACTORY_HEADER + bytes(ZONES * FRAMES * 3)
@@ -100,12 +101,12 @@ class BlobTests(unittest.TestCase):
 class PressFlashTests(unittest.TestCase):
     def test_lights_while_held_then_goes_dark(self):
         flash = led.PressFlash()
-        self.assertIsNone(flash.update(True, 0.0))  # not configured for press_flash
+        self.assertIsNone(flash.update(HELD, 0.0))  # not configured for press_flash
         flash.configure(led.LedSettings("press_flash", ((200, 100, 0),), brightness=50))
-        self.assertIsNone(flash.update(False, 0.0))  # nothing pressed, nothing to send
-        self.assertEqual(flash.update(True, 0.1), (100, 50, 0))  # brightness 50 %
-        self.assertIsNone(flash.update(True, 0.2))  # still held: already lit
-        fade = [flash.update(False, 0.3 + step * 0.02) for step in range(2)]
+        self.assertIsNone(flash.update(NOTHING, 0.0))  # nothing pressed, nothing to send
+        self.assertEqual(flash.update(HELD, 0.1), (100, 50, 0))  # brightness 50 %
+        self.assertIsNone(flash.update(HELD, 0.2))  # still held: already lit
+        fade = [flash.update(NOTHING, 0.3 + step * 0.02) for step in range(2)]
         self.assertEqual(fade, [(0, 0, 0), None])  # dark as soon as it's let go
 
     def test_each_press_uses_the_next_color(self):
@@ -114,24 +115,45 @@ class PressFlashTests(unittest.TestCase):
         flash.configure(led.LedSettings("press_flash", colors, brightness=100))
         seen, now = [], 0.0
         for _ in range(5):
-            seen.append(flash.update(True, now))
-            self.assertIsNone(flash.update(True, now + 0.05))  # still held: same color, nothing to send
-            flash.update(False, now + 0.1)  # let go
+            seen.append(flash.update(HELD, now))
+            self.assertIsNone(flash.update(HELD, now + 0.05))  # still held: same color, nothing to send
+            flash.update(NOTHING, now + 0.1)  # let go
             now += 0.2
         self.assertEqual(seen, [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 0)])
 
     def test_fade_steps_are_paced_but_presses_are_sent_at_once(self):
         flash = led.PressFlash()
         flash.configure(led.LedSettings("press_flash", ((255, 0, 0), (0, 0, 255)), brightness=100))
-        self.assertEqual(flash.update(True, 0.0), (255, 0, 0))
-        self.assertIsNone(flash.update(False, 0.005))  # too soon after the press to send again
-        self.assertEqual(flash.update(False, 0.02), (0, 0, 0))
-        self.assertEqual(flash.update(True, 0.025), (0, 0, 255))  # pressed again: next color at once
+        self.assertEqual(flash.update(HELD, 0.0), (255, 0, 0))
+        self.assertIsNone(flash.update(NOTHING, 0.005))  # too soon after the press to send again
+        self.assertEqual(flash.update(NOTHING, 0.02), (0, 0, 0))
+        self.assertEqual(flash.update(HELD, 0.025), (0, 0, 255))  # pressed again: next color at once
+
+    def test_specific_buttons_flash_their_own_colors(self):
+        flash = led.PressFlash()
+        flash.configure(led.LedSettings("press_flash", (BLUE,), brightness=100, specific_buttons=True,
+                                        button_colors=(("A", (0, 255, 0)), ("LB", RED))))
+        self.assertIsNone(flash.update(frozenset({"X"}), 0.0))  # no color for X: nothing lights up
+        self.assertEqual(flash.update(frozenset({"A"}), 0.1), (0, 255, 0))
+        self.assertEqual(flash.update(frozenset({"A", "LB"}), 0.2), RED)  # the one pressed last shows
+        self.assertEqual(flash.update(frozenset({"A"}), 0.3), (0, 255, 0))  # LB let go: back to A, still held
+        self.assertEqual(flash.update(frozenset({"A", "X"}), 0.4), None)  # X has no color: A stays
+        self.assertEqual(flash.update(NOTHING, 0.5), (0, 0, 0))  # all let go: dark
+
+    def test_specific_buttons_use_the_brightness_and_ignore_the_colors(self):
+        flash = led.PressFlash()
+        flash.configure(led.LedSettings("press_flash", (BLUE,), brightness=50, specific_buttons=True,
+                                        button_colors=(("B", (200, 100, 0)),)))
+        self.assertIsNone(flash.update(frozenset({"A"}), 0.0))  # A isn't chosen, and the normal colors are off
+        self.assertEqual(flash.update(frozenset({"B"}), 0.1), (100, 50, 0))
+        chosen_none = led.PressFlash()
+        chosen_none.configure(led.LedSettings("press_flash", (BLUE,), specific_buttons=True))
+        self.assertIsNone(chosen_none.update(frozenset({"A"}), 0.0))
 
     def test_other_effects_send_nothing(self):
         flash = led.PressFlash()
         flash.configure(led.LedSettings("static", ((255, 0, 0),)))
-        self.assertIsNone(flash.update(True, 0.0))
+        self.assertIsNone(flash.update(HELD, 0.0))
 
 
 class CommandTests(unittest.TestCase):

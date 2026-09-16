@@ -193,8 +193,26 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertIn("background service", w.led_effect_hint.text())
         w.led_colors.set_colors([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)])
         self.assertFalse(w.led_colors.add_button.isEnabled())  # 4 is the most for this effect
+        self.assertTrue(w._led_form.isRowVisible(w.led_specific))
+        self.assertFalse(w._led_form.isRowVisible(w.led_button_colors))
+        w.led_specific.setChecked(True)
+        self.assertTrue(w._led_form.isRowVisible(w.led_button_colors))
+        self.assertFalse(w.led_colors.isEnabled())  # the normal colors aren't used
+        w.led_button_colors.set_color("LB", (255, 0, 0))
+        w.led_button_colors.set_color("A", (0, 255, 0))
+        w.led_button_colors.button.setCurrentIndex(w.led_button_colors.button.findData("A"))
+        self.assertTrue(w.led_button_colors.clear_button.isEnabled())
+        self.assertIn("LB", w.led_button_colors.summary.text())
+        self.assertTrue(w.save())
+        saved = config.load(self.path).led
+        self.assertTrue(saved.specific_buttons)
+        self.assertEqual(dict(saved.button_colors), {"A": (0, 255, 0), "LB": (255, 0, 0)})
+        w.led_button_colors.set_color("LB", None)  # "No flash"
+        self.assertEqual(w.led_button_colors.button_colors(), (("A", (0, 255, 0)),))
         w.led_effect.setCurrentIndex(w.led_effect.findData("strobe"))
         self.assertIn("Experimental", w.led_effect_hint.text())
+        self.assertFalse(w._led_form.isRowVisible(w.led_specific))  # only for Flash on button press
+        self.assertTrue(w.led_colors.isEnabled())
 
     def test_revert_and_defaults(self):
         w = self.window
