@@ -201,6 +201,7 @@ class Controller:
         try:
             self._write(protocol.rumble(0, 0))
             self._write(protocol.test_mode(False))
+            self._write(protocol.rumble(0, 0))  # again, in case the first one got lost over the dongle
         except DeviceError:
             pass  # already unplugged; nothing to switch off
         finally:

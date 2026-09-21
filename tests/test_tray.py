@@ -57,5 +57,44 @@ class DescribeTests(unittest.TestCase):
         self.assertTrue(warner.check(connected(battery_percent=20)))
 
 
+
+@unittest.skipIf(PyQt6 is None, "PyQt6 isn't installed")
+class WarningSoundTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from vader5 import tray
+        cls.tray = tray
+
+    def test_the_best_battery_sound_is_found_in_the_sound_themes(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as data:
+            for theme, name in (("freedesktop", "dialog-warning.oga"), ("ocean", "battery-caution.oga")):
+                os.makedirs(os.path.join(data, "sounds", theme, "stereo"), exist_ok=True)
+                open(os.path.join(data, "sounds", theme, "stereo", name), "w").close()
+            self.assertTrue(self.tray.warning_sound_file([data]).endswith("ocean/stereo/battery-caution.oga"))
+            self.assertIsNone(self.tray.warning_sound_file([os.path.join(data, "nothing here")]))
+
+    def test_it_plays_with_a_player_the_system_has(self):
+        have = {"paplay"}
+        which = lambda name: f"/usr/bin/{name}" if name in have else None  # noqa: E731
+        self.assertEqual(self.tray.warning_sound_command("/s/b.oga", which), ["paplay", "/s/b.oga"])
+        have.add("pw-play")
+        self.assertEqual(self.tray.warning_sound_command("/s/b.oga", which), ["pw-play", "/s/b.oga"])
+        self.assertIsNone(self.tray.warning_sound_command(None, which))
+        self.assertIsNone(self.tray.warning_sound_command("/s/b.oga", lambda name: None))
+
+    def test_the_sound_can_be_turned_off(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "config.toml")
+            self.assertTrue(self.tray.low_battery_sound_wanted(path))  # no settings file: on
+            with open(path, "w") as file:
+                file.write("[notifications]\nlow_battery_sound = false\n")
+            self.assertFalse(self.tray.low_battery_sound_wanted(path))
+            with open(path, "w") as file:
+                file.write("[notifications]\nlow_battery_sound = maybe\n")
+            self.assertTrue(self.tray.low_battery_sound_wanted(path))  # a mistake in the file: the default
+
+
 if __name__ == "__main__":
     unittest.main()

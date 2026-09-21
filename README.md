@@ -214,7 +214,9 @@ starts at login, and opening the settings window starts it too. The icon is in c
 background service isn't running. Hover over it for connection, battery and gyro status, click it
 to open the settings, and right-click for a menu (status, open settings, start or stop the
 background service, quit). When the battery drops to 20% or less and isn't charging, it shows one
-warning, and warns again only after the battery has been charged. The battery level comes from the
+warning ("Controller battery at 20%") with the desktop's battery sound, and warns again only after the
+battery has been charged. Turn the sound off with "Play a sound with the low-battery warning" in the
+settings window, or `low_battery_sound = false` under `[notifications]` in the settings file. The battery level comes from the
 controller in 20% steps.
 
 The tray and settings window read a small status file that `vader5-pad` keeps up to date

@@ -37,6 +37,24 @@ class LaunchTests(unittest.TestCase):
             if script:
                 self.assertTrue(os.path.exists(os.path.join(launch.PROJECT_DIR, script)), script)
 
+    def test_started_processes_are_not_left_behind(self):
+        import time
+        marker = os.path.join(tempfile.mkdtemp(), "ran")
+        self.assertTrue(launch.start_detached(["/bin/sh", "-c", f'sleep 0.3; touch "{marker}"']))
+        for _ in range(40):
+            if os.path.exists(marker):
+                break
+            time.sleep(0.05)
+        self.assertTrue(os.path.exists(marker))  # it ran, on its own
+        time.sleep(0.1)
+        with self.assertRaises(ChildProcessError):  # and it isn't this process's child, left behind as "defunct"
+            os.waitpid(-1, os.WNOHANG)
+
+    def test_a_missing_program_is_reported(self):
+        def missing(*args, **options):
+            raise FileNotFoundError(args[0][0])
+        self.assertFalse(launch.start_detached(["no-such-program"], spawn=missing))
+
     def test_version_help_and_unknown_command(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -46,6 +64,11 @@ class LaunchTests(unittest.TestCase):
         self.assertIn("setup", out.getvalue())
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(launch.main(["dance"]), 2)
+        help_text = io.StringIO()
+        with contextlib.redirect_stdout(help_text), mock.patch.object(sys, "argv", ["__main__.py"]):
+            with self.assertRaises(SystemExit):
+                launch.main(["config", "--help"])
+        self.assertIn("usage: config", help_text.getvalue())
 
     def test_icon_and_rule_are_in_the_package(self):
         self.assertTrue(os.path.exists(launch.ICON_FILE))

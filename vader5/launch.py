@@ -48,13 +48,20 @@ def command(part: str, appimage_path: str | None = None) -> list[str]:
     return [sys.executable, "-m", "vader5", part]
 
 
-def start_detached(argv: list[str], spawn=subprocess.Popen) -> bool:
-    """Start a process that keeps running on its own. False if it couldn't be started."""
+def start_detached(argv: list[str], spawn=subprocess.Popen, env: dict | None = None) -> bool:
+    """Start a process that keeps running on its own. False if it couldn't be started.
+
+    It's started through a shell that exits at once, so the process isn't this one's child and doesn't
+    linger as a "defunct" entry after it finishes."""
     try:
-        spawn(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-              start_new_session=True)
+        shell = spawn(["/bin/sh", "-c", '"$@" &', "sh", *argv], stdin=subprocess.DEVNULL,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, env=env)
     except OSError:
         return False
+    try:
+        shell.wait(timeout=5)
+    except (AttributeError, subprocess.TimeoutExpired):
+        pass
     return True
 
 
@@ -78,4 +85,5 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unknown command {name!r}.\n\n{usage()}", file=sys.stderr)
         return 2
     module, function, _, _ = PARTS[name]
+    sys.argv[0] = name  # so a command's help says "usage: config ...", not "usage: __main__.py ..."
     return getattr(importlib.import_module(module), function)(args) or 0

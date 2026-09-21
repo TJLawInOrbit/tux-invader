@@ -229,6 +229,24 @@ class LedSettingsTests(unittest.TestCase):
         self.assertEqual(profiled.for_profile("SF6").led.button_colors, (("A", (0, 255, 0)),))
         self.assertEqual(config.parse(config.render(profiled)), profiled)
 
+    def test_low_battery_sound(self):
+        self.assertTrue(config.Settings().low_battery_sound)
+        settings = config.parse("[notifications]\nlow_battery_sound = false")
+        self.assertFalse(settings.low_battery_sound)
+        self.assertEqual(config.parse(config.render(settings)), settings)
+        self.assertIn("low battery sound off", config.describe(settings))
+        cases = {
+            '[notifications]\nlow_battery_sound = "loud"': "low_battery_sound",
+            "[notifications]\nvolume = 3": "unknown setting 'volume'",
+            '[[profile]]\nname = "A"\nprocess = "a"\n[profile.notifications]\nlow_battery_sound = false':
+                "unknown setting 'notifications'",  # one setting for all games
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(config.ConfigError) as caught:
+                    config.parse(text)
+                self.assertIn(message, str(caught.exception))
+
     def test_game_profiles_can_have_their_own_lights(self):
         settings = config.parse('[led]\neffect = "static"\ncolors = ["#0000ff"]\n'
                                 '[[profile]]\nname = "SF6"\nsteam_app_id = 1364780\n[profile.led]\ncolors = ["#ff0000"]')

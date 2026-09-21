@@ -491,6 +491,11 @@ class SettingsWindow(QMainWindow):
         grid.addWidget(self.stop_button, 1, 3)
         grid.addWidget(self.autostart, 2, 1, 1, 2)
         grid.addWidget(self.setup_button, 2, 3)
+        self.battery_sound = QCheckBox("Play a sound with the low-battery warning (20%)")
+        self.battery_sound.setToolTip("The tray icon shows a warning once when the controller's battery is at 20% "
+                                      "or lower; this adds the desktop's battery sound")
+        grid.addWidget(self.battery_sound, 3, 1, 1, 3)
+        self.battery_sound.toggled.connect(lambda _: self._changed())
         grid.setColumnStretch(1, 1)
         self.start_button.clicked.connect(lambda: self._service("start"))
         self.stop_button.clicked.connect(lambda: self._service("stop"))
@@ -667,6 +672,7 @@ class SettingsWindow(QMainWindow):
         self.led_brightness.setValue(lights.brightness)
         self.led_speed.setValue(lights.speed)
         self.led_specific.setChecked(lights.specific_buttons)
+        self.battery_sound.setChecked(settings.low_battery_sound)
         self.led_button_colors.set_button_colors(lights.button_colors)
         self._sync_led_controls(trim=False)
         self._loading = False
@@ -700,6 +706,7 @@ class SettingsWindow(QMainWindow):
             int(round(self.led_brightness.value())), int(round(self.led_speed.value())),
             self.led_specific.isChecked(), self.led_button_colors.button_colors(),
         )
+        settings.low_battery_sound = self.battery_sound.isChecked()
         return config.parse(config.render(settings))
 
     def settings_from_window(self) -> Settings:
@@ -711,6 +718,7 @@ class SettingsWindow(QMainWindow):
         else:
             profiles[self.current] = dataclasses.replace(
                 profiles[self.current], overrides=config.overrides_between(main, form))
+        main = dataclasses.replace(main, low_battery_sound=self.battery_sound.isChecked())  # one setting for all games
         combined = dataclasses.replace(main, profiles=[dataclasses.replace(p, settings=None) for p in profiles])
         return config.parse(config.render(combined))
 

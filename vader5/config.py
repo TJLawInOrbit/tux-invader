@@ -77,6 +77,7 @@ class Settings:
     remap: dict[str, str] = field(default_factory=dict)  # physical button -> controller button, or NONE
     key_remap: dict[str, KeyCombo] = field(default_factory=dict)  # physical button -> keys/mouse buttons
     led: lighting.LedSettings = field(default_factory=lighting.LedSettings)
+    low_battery_sound: bool = True  # the tray icon's low-battery warning also plays a sound
     profiles: list[Profile] = field(default_factory=list)
 
     def for_profile(self, name: str | None) -> Settings:
@@ -159,9 +160,13 @@ def parse(text: str) -> Settings:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as err:
         raise ConfigError(f"the file isn't valid TOML: {err}") from None
-    _check_keys(data, {*SECTIONS, "profile"}, "the file")
+    _check_keys(data, {*SECTIONS, "notifications", "profile"}, "the file")
     settings = Settings()
     _apply_sections(settings, data, "")
+    notifications = _table(data, "notifications")
+    _check_keys(notifications, {"low_battery_sound"}, "[notifications]")
+    if "low_battery_sound" in notifications:
+        settings.low_battery_sound = _boolean(notifications["low_battery_sound"], "[notifications] low_battery_sound")
     profiles = data.get("profile", [])
     if not isinstance(profiles, list):
         raise ConfigError("profiles should be written as [[profile]] sections")
@@ -351,6 +356,10 @@ def render(settings: Settings) -> str:
         '# in its own color, and colors above aren\'t used. Button names as in [remap]: { A = "#00ff00", LB = "#ff0000" }',
         f"specific_buttons = {_toml_value(settings.led.specific_buttons)}",
         f"button_colors = {_toml_value(_led_value(settings.led, 'button_colors'))}",
+        "",
+        "[notifications]",
+        "# The tray icon warns once when the controller's battery is at 20% or lower. true = with a sound.",
+        f"low_battery_sound = {_toml_value(settings.low_battery_sound)}",
         "",
         "[remap]",
         "# physical button = what it sends instead. It can be:",
@@ -598,6 +607,7 @@ def describe(settings: Settings) -> str:
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",
         "remap: " + (", ".join(sorted(remaps)) or "none"),
         "led: " + lighting.describe(settings.led),
+        f"notifications: low battery sound {'on' if settings.low_battery_sound else 'off'}",
         "profiles: " + ("; ".join(profiles) or "none"),
     ])
 

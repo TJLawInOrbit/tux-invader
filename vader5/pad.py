@@ -38,6 +38,12 @@ RECONNECT_S = 1.0
 IDLE_S = 3.0  # no input reports for this long: the controller is off or asleep
 INFO_REFRESH_S = 30.0  # ask the controller for its battery level this often
 RUMBLE_REFRESH_S = 0.5  # re-send active rumble so it never lapses on the controller
+RUMBLE_MIN_GAP_S = 0.05  # at most 20 rumble commands a second: games (emulators especially) can change
+                         # rumble every frame, and a flood of commands can swamp the 2.4G dongle
+RUMBLE_STOP_REPEAT_S = 0.25  # after rumble stops, repeat the stop this often...
+RUMBLE_STOP_REPEAT_FOR_S = 1.5  # ...for this long, so one lost packet can't leave the motors running
+RUMBLE_REPORT_S = 60.0  # how often to log how busy games keep the rumble
+RUMBLE_BUSY = 600  # log it when games changed rumble more than this often in that time (10 a second)
 GYRO_CUE_ON = ((0, 150), 0.08)  # (strong, weak), seconds: short light buzz = gyro aiming on
 GYRO_CUE_OFF = ((150, 0), 0.25)  # longer heavy buzz = gyro aiming off
 
@@ -60,6 +66,52 @@ def status_fields(pad: Controller | None, active: bool, gyro_on: bool, profile: 
         "charging": info.charging if info else False,
         "gyro": gyro_on,
     }
+
+
+class RumbleSender:
+    """Decides when to send rumble to the controller: changes at most every RUMBLE_MIN_GAP_S (always the
+    latest level), active rumble re-sent so it never lapses, and a stop repeated for a while."""
+
+    def __init__(self, started: float = 0.0):
+        self.sent = (0, 0)
+        self._last_send = float("-inf")
+        self._repeat_stop_until = 0.0
+        self._changes = self._sends = 0  # since the last report
+        self._report_at = started + RUMBLE_REPORT_S
+
+    def update(self, wanted: tuple[int, int], now: float) -> tuple[int, int] | None:
+        """The rumble to send now, or None if nothing needs sending."""
+        gap = now - self._last_send
+        changed = wanted != self.sent
+        if changed:
+            due = gap >= RUMBLE_MIN_GAP_S
+        elif any(wanted):
+            due = gap >= RUMBLE_REFRESH_S
+        else:
+            due = now < self._repeat_stop_until and gap >= RUMBLE_STOP_REPEAT_S
+        if not due:
+            return None
+        if changed and not any(wanted):
+            self._repeat_stop_until = now + RUMBLE_STOP_REPEAT_FOR_S
+        self._sends += 1
+        self.sent, self._last_send = wanted, now
+        return wanted
+
+    def note_change(self) -> None:
+        """A game changed the rumble it asks for (counted even when the change isn't sent)."""
+        self._changes += 1
+
+    def report(self, now: float) -> str | None:
+        """Once a minute: a log line when games changed rumble very often, else None."""
+        if now < self._report_at:
+            return None
+        changes, sends = self._changes, self._sends
+        self._changes = self._sends = 0
+        self._report_at = now + RUMBLE_REPORT_S
+        if changes <= RUMBLE_BUSY:
+            return None
+        return (f"rumble: games changed it {changes} times in the last minute; "
+                f"{sends} commands were sent to the controller")
 
 
 class StatusReporter:
@@ -211,7 +263,8 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
     keyboard_mouse: VirtualKeyboardMouse | None = None
     last_report = time.monotonic()
     next_info = last_report + INFO_REFRESH_S  # the handshake already read the battery once
-    sent_rumble, last_rumble_send = (0, 0), 0.0
+    rumble = RumbleSender(last_report)
+    asked_rumble = (0, 0)  # what games last asked for, to count how often they change it
     cue, cue_until = (0, 0), 0.0
     last_buttons = frozenset()
     try:
@@ -253,7 +306,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
                 vpad.close()
                 keyboard_mouse.close()  # also releases any keys still held
                 vpad = keyboard_mouse = None
-                sent_rumble = (0, 0)
+                rumble = RumbleSender(now)
                 log("controller idle (off or asleep): virtual controller and keyboard and mouse removed")
 
             flash_color = flash.update(held if vpad is not None else frozenset(), now)
@@ -262,13 +315,19 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
 
             if vpad:
                 vpad.handle_events(now)
+                if vpad.rumble != asked_rumble:
+                    rumble.note_change()
+                    asked_rumble = vpad.rumble
                 wanted = cue if now < cue_until else vpad.rumble  # the gyro cue briefly overrides games
-                refresh_due = any(wanted) and now - last_rumble_send >= RUMBLE_REFRESH_S
-                if wanted != sent_rumble or refresh_due:
-                    pad.rumble(*wanted)
-                    if verbose and wanted != sent_rumble:
-                        log(f"rumble: strong {wanted[0]} weak {wanted[1]}")
-                    sent_rumble, last_rumble_send = wanted, now
+                previous = rumble.sent
+                send = rumble.update(wanted, now)
+                if send is not None:
+                    pad.rumble(*send)
+                    if verbose and send != previous:
+                        log(f"rumble: strong {send[0]} weak {send[1]}")
+                busy = rumble.report(now)
+                if busy:
+                    log(busy)
 
             reporter.update(now, status_fields(pad, vpad is not None, gyro.enabled, games.active))
     finally:

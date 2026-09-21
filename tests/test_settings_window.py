@@ -58,7 +58,7 @@ class SettingsWindowTests(unittest.TestCase):
     def test_opening_the_app_starts_the_tray_icon(self):
         calls = []
         self.assertTrue(self.module.start_tray(spawn=lambda command, **options: calls.append((command, options))))
-        self.assertEqual(calls[0][0], launch.command("tray"))
+        self.assertEqual(calls[0][0][-len(launch.command("tray")):], launch.command("tray"))
         self.assertTrue(calls[0][1]["start_new_session"])  # keeps running after the window closes
 
         def missing(command, **options):
@@ -213,6 +213,17 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertIn("Experimental", w.led_effect_hint.text())
         self.assertFalse(w._led_form.isRowVisible(w.led_specific))  # only for Flash on button press
         self.assertTrue(w.led_colors.isEnabled())
+
+    def test_low_battery_sound_checkbox(self):
+        w = self.window
+        self.assertTrue(w.battery_sound.isChecked())  # on by default
+        w.battery_sound.setChecked(False)
+        self.assertTrue(w.save_button.isEnabled())
+        self.assertIsNone(w.add_profile("Street Fighter 6", steam_app_id=1364780))  # editing a game profile...
+        self.assertTrue(w.save())
+        saved = config.load(self.path)
+        self.assertFalse(saved.low_battery_sound)  # ...still saves it, for all games
+        self.assertNotIn("notifications", saved.profiles[0].overrides)
 
     def test_revert_and_defaults(self):
         w = self.window

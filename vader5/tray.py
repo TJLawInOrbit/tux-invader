@@ -8,7 +8,9 @@ controller itself. Click the icon to open the settings; right-click for the menu
 
 from __future__ import annotations
 
+import glob
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -20,7 +22,7 @@ from PyQt6.QtCore import QTimer, qEnvironmentVariable
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QStyle, QSystemTrayIcon
 
-from . import APP_NAME, launch
+from . import APP_NAME, config, launch
 from . import status as status_file
 
 LOW_BATTERY_PERCENT = 20
@@ -29,6 +31,39 @@ OPEN_SETTINGS_GAP_S = 1.5  # clicks closer together than this don't start anothe
 LOCK_WAIT_S = 3.0  # how long a new tray icon waits for an older one that's still closing
 SERVICE = "vader5-pad.service"
 STATUS_LINES = 4
+
+
+WARNING_SOUNDS = ("battery-caution", "battery-low", "dialog-warning")  # sound theme names, best first
+SOUND_PLAYERS = (["pw-play"], ["paplay"], ["canberra-gtk-play", "-f"])
+
+
+def warning_sound_file(data_dirs: list[str] | None = None) -> str | None:
+    """A low-battery sound from the desktop's sound themes (KDE's "battery-caution", for example)."""
+    if data_dirs is None:
+        data_dirs = (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    for name in WARNING_SOUNDS:
+        for base in data_dirs:
+            found = sorted(glob.glob(os.path.join(base, "sounds", "*", "stereo", name + ".og[ga]")))
+            if found:
+                return found[0]
+    return None
+
+
+def warning_sound_command(sound: str | None, which=shutil.which) -> list[str] | None:
+    """How to play the sound with a player this system has, or None."""
+    if sound is None:
+        return None
+    for player in SOUND_PLAYERS:
+        if which(player[0]):
+            return [*player, sound]
+    return None
+
+
+def low_battery_sound_wanted(path: str | None = None) -> bool:
+    try:
+        return config.load(path).low_battery_sound
+    except config.ConfigError:
+        return True  # the settings file has a mistake: use the default
 
 
 @dataclass
@@ -110,10 +145,10 @@ class Tray:
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
         self.timer.start(REFRESH_MS)
-        self.refresh()
-        self.icon.show()
+        self.icon.show()  # first: a message sent through an icon that isn't on the panel yet is lost
+        self.refresh(warn=False)  # a battery warning waits for the next refresh, once the icon is up
 
-    def refresh(self) -> None:
+    def refresh(self, warn: bool = True) -> None:
         current = status_file.read(self.status_path)
         self.view = describe(current)
         self.icon.setIcon(self.icon_active if self.view.active else self.icon_inactive)
@@ -123,10 +158,16 @@ class Tray:
             action.setText(text or "")
         self.service_action.setText("Stop background service" if self.view.service_running
                                     else "Start background service")
-        if self.warner.check(current):
-            self.icon.showMessage("Vader 5 Pro battery low",
-                                  f"The controller's battery is at {current['battery_percent']}%. Charge it soon.",
-                                  QSystemTrayIcon.MessageIcon.Warning, 10000)
+        if warn and self.warner.check(current):
+            self.warn_low_battery(current["battery_percent"])
+
+    def warn_low_battery(self, percent: int) -> None:
+        self.icon.showMessage(f"Controller battery at {percent}%", "Charge the Vader 5 Pro soon.",
+                              QSystemTrayIcon.MessageIcon.Warning, 10000)
+        if low_battery_sound_wanted():
+            command = warning_sound_command(warning_sound_file())
+            if command:
+                launch.start_detached(command)
 
     def _activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -144,7 +185,7 @@ class Tray:
         if token:
             env["XDG_ACTIVATION_TOKEN"] = token
             os.unsetenv("XDG_ACTIVATION_TOKEN")
-        subprocess.Popen(launch.command("settings"), env=env, start_new_session=True)
+        launch.start_detached(launch.command("settings"), env=env)
 
     def toggle_service(self) -> None:
         command = "stop" if self.view.service_running else "start"
