@@ -390,8 +390,20 @@ The Tux InVader is free software: you can use it, study it, change it and share 
 the **GNU General Public License, version 3 or later** (see `LICENSE`). If you share a changed version,
 share its source under the same license. It comes with no warranty.
 
-The AppImage bundles Python, PyQt6 and python-evdev, which carry their own licenses (PyQt6 is GPL v3,
-which is why this app is too).
+### What the AppImage bundles
+
+The AppImage carries these unchanged, each under its own license. `packaging/build-appimage.sh` pins
+every version and checks its SHA-256, so anyone can rebuild the same file from this repository.
+
+| Bundled | Version | License | Source |
+|---------|---------|---------|--------|
+| Python | 3.12.14 (as a [python-appimage](https://github.com/niess/python-appimage) build) | PSF | [python.org/downloads](https://www.python.org/downloads/release/python-31214/) |
+| PyQt6 | 6.11.0 (with PyQt6-sip 13.12.0) | GPL v3 | [pypi.org/project/PyQt6](https://pypi.org/project/PyQt6/6.11.0/#files) |
+| Qt | 6.11.2 (as PyQt6-Qt6, trimmed to the parts used) | LGPL v3 | [download.qt.io](https://download.qt.io/archive/qt/6.11/6.11.2/single/) |
+| python-evdev | 2.0.0 (as evdev-binary) | Revised BSD | [pypi.org/project/evdev](https://pypi.org/project/evdev/2.0.0/#files) |
+| AppImage runtime | [type2-runtime 20251108](https://github.com/AppImage/type2-runtime/releases/tag/20251108) | MIT | that release page |
+
+PyQt6 is GPL v3, which is why this app is too.
 
 ## Credits
 
