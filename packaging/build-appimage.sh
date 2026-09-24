@@ -120,6 +120,7 @@ rm -f "$APPDIR"/usr/bin/pip*
 install -m 755 "$PROJECT/packaging/AppRun" "$APPDIR/AppRun"
 sed "s/@VERSION@/$VERSION/" "$PROJECT/packaging/tux-invader.desktop" > "$APPDIR/tux-invader.desktop"
 install -m 644 "$PROJECT/vader5/data/tux-invader.svg" "$APPDIR/tux-invader.svg"
+install -Dm 644 "$PROJECT/LICENSE" "$APPDIR/usr/share/licenses/tux-invader/LICENSE"
 if command -v rsvg-convert >/dev/null; then
     rsvg-convert -w 256 -h 256 "$APPDIR/tux-invader.svg" -o "$APPDIR/.DirIcon"
 else

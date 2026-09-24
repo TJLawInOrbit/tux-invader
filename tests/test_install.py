@@ -70,6 +70,14 @@ class LaunchTests(unittest.TestCase):
                 launch.main(["config", "--help"])
         self.assertIn("usage: config", help_text.getvalue())
 
+    def test_the_license_is_there_and_named_in_the_version(self):
+        with open(os.path.join(launch.PROJECT_DIR, "LICENSE")) as file:
+            self.assertIn("GNU GENERAL PUBLIC LICENSE", file.read(200))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            launch.main(["--version"])
+        self.assertIn("GNU GPL version 3", out.getvalue())
+
     def test_icon_and_rule_are_in_the_package(self):
         self.assertTrue(os.path.exists(launch.ICON_FILE))
         rule = install.rule_text()

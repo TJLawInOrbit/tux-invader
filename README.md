@@ -371,12 +371,37 @@ Done:
 3. Starts automatically at login as a systemd user service, and reconnects on its own
 4. Gyro aiming as a mouse: toggle button, ratchet (hold to pause), left/right and up/down speed
 5. Settings file and settings window; keyboard keys and mouse buttons in remaps
-6. Tray icon, app menu entry and per-game profiles; paddles match Steam's P1-P4 (v0.2)
-7. LED strip control, including a flash on button press (v0.3)
+6. Tray icon with a low-battery warning, app menu entry and per-game profiles (v0.2)
+7. LED strip control, including a flash on button press, per button if you like (v0.3)
+8. AppImage with a one-click setup, tested on Ubuntu, Debian, Fedora and Arch (v0.4)
 
 Next:
 
 - Gyro: less slip between where the controller points and where you aim
-- Later, on hold: packaging so others can install it easily, and testing the low-battery warning
+- Support for newer controller firmware, once someone runs it (see **Firmware**)
 
 Not planned: gyro for emulators.
+
+## License
+
+Copyright (C) 2026 tjlaw
+
+The Tux InVader is free software: you can use it, study it, change it and share it under the terms of
+the **GNU General Public License, version 3 or later** (see `LICENSE`). If you share a changed version,
+share its source under the same license. It comes with no warranty.
+
+The AppImage bundles Python, PyQt6 and python-evdev, which carry their own licenses (PyQt6 is GPL v3,
+which is why this app is too).
+
+## Credits
+
+The controller's protocol was worked out from these projects and checked against a real Vader 5 Pro:
+
+- [flydigi-vader-pro-5-ctl](https://github.com/rR6kULhc5xgS/flydigi-vader-pro-5-ctl) — protocol notes for
+  the LED and mapping data, and the settings commands
+- [BANANASJIM/flydigi-vader5](https://github.com/BANANASJIM/flydigi-vader5) — the vendor "test mode" that
+  streams the paddles, gyro and accelerometer
+- [SDL](https://github.com/libsdl-org/SDL)'s `SDL_hidapi_flydigi.c` — the input report layout and how the
+  battery is reported
+
+Flydigi and Vader are trademarks of their owner; this project isn't connected with Flydigi.

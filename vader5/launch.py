@@ -78,7 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         print(usage())
         return 0
     if args and args[0] in ("-V", "--version", "version"):
-        print(f"{APP_NAME} {VERSION}")
+        print(f"{APP_NAME} {VERSION}\n"
+              "Copyright (C) 2026 tjlaw. GNU GPL version 3 or later; no warranty.")
         return 0
     name = args.pop(0) if args else "settings"
     if name not in PARTS:
