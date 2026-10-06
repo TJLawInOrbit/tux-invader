@@ -1,6 +1,8 @@
 # The Tux InVader
 
-<img width="784" height="912" alt="LawClip_2026-10-06_19-06-11" src="https://github.com/user-attachments/assets/3883975e-5936-4cb4-adc9-a7a506bdca1a" />
+![The Tux InVader settings window: firmware and controller status at the top, and the Gyro tab with the on/off button, ratchet, turn space and sensitivity settings](docs/screenshot.png)
+
+[A short demo of the settings window](https://github.com/user-attachments/assets/3883975e-5936-4cb4-adc9-a7a506bdca1a) (36 s)
 
 Linux control settings for the Flydigi Vader 5 Pro.
 
