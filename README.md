@@ -1,5 +1,7 @@
 # The Tux InVader
 
+<img width="784" height="912" alt="LawClip_2026-10-06_19-06-11" src="https://github.com/user-attachments/assets/3883975e-5936-4cb4-adc9-a7a506bdca1a" />
+
 Linux control settings for the Flydigi Vader 5 Pro.
 
 A small userspace app for the Flydigi Vader 5 Pro. It gets the back paddles, extra buttons, gyro,
