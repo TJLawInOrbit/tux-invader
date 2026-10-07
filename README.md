@@ -17,11 +17,12 @@ turns test mode on while it runs and switches it off again when it exits.
 
 ## Install the AppImage
 
-1. Download `The_Tux_InVader-0.4-x86_64.AppImage`, make it executable (`chmod +x`, or the file's
+1. Download the AppImage from [Releases](https://github.com/TJLawInOrbit/tux-invader/releases), make it
+   executable (`chmod +x`, or the file's
    Properties → "Allow executing") and open it.
 2. In the settings window, click **Set up…**. It copies the app to `~/Applications`, installs the
    permissions rule (asks for your password once), and adds the background service, the app menu entry
-   and the tray icon. From a terminal the same is `./The_Tux_InVader-0.4-x86_64.AppImage setup`.
+   and the tray icon. From a terminal the same is `./The_Tux_InVader-*-x86_64.AppImage setup`.
 3. Unplug the controller (or the dongle) and plug it back in, and press the Home button.
 
 It runs on 64-bit PCs with glibc 2.34 or newer (Ubuntu and Pop!_OS 22.04 and later, Debian 12, Fedora,
