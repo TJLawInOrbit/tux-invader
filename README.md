@@ -299,6 +299,29 @@ sudo rm /etc/udev/rules.d/70-vader5-pro.rules
 sudo udevadm control --reload-rules
 ```
 
+### What it can reach
+
+- **Runs as you, never as root.** The only step that needs root is installing the permissions rule
+  above: `setup` asks once through your desktop's password prompt (`pkexec`), and hands the rule's text
+  straight to that command rather than leaving a file for anything else to swap first.
+- **Talks to no network.** Nothing in the app opens a network connection, phones home or collects
+  anything. The only socket it uses is a local one in your runtime folder, so a second launch can bring
+  the open settings window to the front. (The build and distro-test scripts do download pinned files,
+  but they aren't part of what you run.)
+- **The permissions rule is as narrow as the job allows.** The controller's hidraw node and USB device
+  are matched by this controller's vendor and product ID, and only the person logged in at the screen
+  gets access. `/dev/uinput` is the exception: it can't be narrowed, and it lets programs you run create
+  virtual keyboards and mice. Steam's own rules grant the same; if you'd rather not, Steam's rules may
+  already cover uinput on your system and you can drop that line from the rule.
+- **Writes only to your own files:** `~/.config/vader5` (settings), `~/.local/share` (menu entry and
+  icon), `~/Applications` (the AppImage copy) and `~/.config/systemd/user` (the service). `uninstall`
+  removes them; your settings stay unless you delete them.
+- **Nothing is written to the controller's memory.** The lights are sent live, and the controller's own
+  stored profiles are left alone.
+- **Your settings file is yours.** It's read with Python's TOML parser and every value is checked;
+  a bad file is reported and the previous settings stay in use. Nothing in it runs commands: the worst a
+  strange file can do is remap your buttons oddly.
+
 ## Tests
 
 ```sh

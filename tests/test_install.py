@@ -14,15 +14,23 @@ from vader5 import VERSION, install, launch  # noqa: E402
 
 class FakeRunner:
     def __init__(self, fail=()):
-        self.calls, self.fail = [], fail
+        self.calls, self.inputs, self.fail = [], [], fail
 
-    def __call__(self, argv):
+    def __call__(self, argv, text_in=None):
         self.calls.append(argv)
+        self.inputs.append(text_in)
         code = 126 if argv[0] in self.fail else 0
         return subprocess.CompletedProcess(argv, code, "", "cancelled" if code else "")
 
     def ran(self, *start):
         return any(call[:len(start)] == list(start) for call in self.calls)
+
+    def input_to(self, program):
+        """What was fed to that program's input, if it was run."""
+        for argv, text in zip(self.calls, self.inputs):
+            if argv[0] == program:
+                return text
+        return None
 
 
 class LaunchTests(unittest.TestCase):
@@ -144,8 +152,10 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self.stopped, [True])  # the old tray icon was asked to quit
         self.assertTrue(runner.ran("systemctl", "--user", "enable", install.UNIT))
         self.assertTrue(runner.ran("pkexec"))
-        with open(self.places.staged_rule) as file:
-            self.assertEqual(file.read(), install.rule_text())  # root reads this copy, not the AppImage's
+        # the rule reaches root as input, with no file anything else could swap first
+        self.assertEqual(runner.input_to("pkexec"), install.rule_text())
+        self.assertNotIn(self.places.staged_rule, " ".join(runner.calls[-1]))
+        self.assertFalse(os.path.exists(self.places.staged_rule))
         self.assertIn("permissions rule is installed", " ".join(messages))
 
     def test_setup_from_the_project_folder_without_the_rule(self):
@@ -163,6 +173,8 @@ class SetupTests(unittest.TestCase):
             file.write("an older rule without uinput\n")
         cancelled = self.setup(self.env, FakeRunner(fail=("pkexec",)), parts=("rule",))
         self.assertIn("sudo install", cancelled[0])
+        with open(self.places.staged_rule) as file:  # only then is a copy left to install by hand
+            self.assertEqual(file.read(), install.rule_text())
         with open(install.RULE_TARGET, "w") as file:
             file.write(install.rule_text())
         runner = FakeRunner()

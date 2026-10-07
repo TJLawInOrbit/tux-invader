@@ -148,10 +148,10 @@ def is_set_up(env=None) -> bool:
     return os.path.exists(places.unit_file) and os.path.exists(places.menu_entry)
 
 
-def run(argv: list[str]) -> subprocess.CompletedProcess:
+def run(argv: list[str], text_in: str | None = None) -> subprocess.CompletedProcess:
     """Run a command, reporting a missing program as a failure instead of an exception."""
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=300)
+        return subprocess.run(argv, input=text_in, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as error:
         return subprocess.CompletedProcess(argv, 127, "", str(error))
 
@@ -242,12 +242,15 @@ def setup(parts=SETUP_PARTS, env=None, runner=run, spawn=start_detached, stop=st
 def _install_rule(places: Places, runner) -> str:
     if rule_installed():
         return "The permissions rule is already installed."
-    _write(places.staged_rule, rule_text())
-    result = runner(["pkexec", "/bin/sh", "-c", f'install -m 644 "$1" {RULE_TARGET} && {TRIGGER}',
-                     "sh", places.staged_rule])
+    # The rule is handed to root through the command's input, not as a file: a file in the user's own
+    # folder could be swapped for another one between writing it and root reading it, and a udev rule
+    # can run programs as root.
+    result = runner(["pkexec", "/bin/sh", "-c", f"cat > {RULE_TARGET} && chmod 644 {RULE_TARGET} && {TRIGGER}"],
+                    rule_text())
     if result.returncode == 0:
         return ("The permissions rule is installed. If the controller doesn't respond, unplug it (or the "
                 "dongle) and plug it back in, and press the Home button.")
+    _write(places.staged_rule, rule_text())  # a copy to install by hand, since the prompt didn't work
     return ("The permissions rule wasn't installed (the password prompt was cancelled or isn't available). "
             f"To install it by hand, run:\n  sudo install -m 644 '{places.staged_rule}' {RULE_TARGET}"
             " && sudo udevadm control --reload-rules\nthen unplug the controller and plug it back in, and press the Home button.")
