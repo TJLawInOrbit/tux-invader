@@ -83,12 +83,13 @@ unplug, switch between cable and dongle, or turn the controller off, it reconnec
 | Select, Start, Home | Back (View), Start (Menu), Guide |
 | M1 / M2 / M3 / M4 | Paddles P1 / P2 / P3 / P4 (as Steam names them) |
 | C, Z, LM, RM, FN | Extra buttons 1-5 (bindable in Steam and some games) |
-| Turbo | Toggles gyro aiming (not sent to games) |
+| Turbo | Switches gyro aiming on and off (not sent to games) |
 
 ### Gyro aiming
 
 Press **Turbo** to turn gyro aiming on or off. A short light buzz means on; a longer heavy buzz means
-off. While it's on, turning the controller left and right moves the mouse sideways, and tilting it
+off. Prefer to hold a button instead? Set **That button** to "Aim only while it's held down" (`mode =
+"hold"` under `[gyro]`) and pick a button that can be held: Turbo only sends a short pulse, so it can't. While it's on, turning the controller left and right moves the mouse sideways, and tilting it
 up and down moves it vertically, on top of your normal controller input. Games see an ordinary
 mouse ("Vader 5 Pro Keyboard and Mouse"), so it works in any game that lets you aim with the mouse
 while you use a controller. Turbo itself isn't sent to games. Gyro aiming starts off each time the controller
@@ -150,6 +151,8 @@ what's wrong, and the previous settings stay in use.
   (`horizontal_scale`) or up/down (`vertical_scale`), inverting either direction, and tightening
   (lower it if small, slow movements feel stiff)
 - `[sticks]`: deadzones, for a stick that drifts
+- `[pointer]`: hold a button to move the mouse pointer with a stick, and that stick's speed, deadzone
+  and curve
 - `[remap]`: make a button send something else:
   - another controller button: `M1 = "A"`
   - a keyboard key or combination: `M2 = "key:space"`, `M3 = "key:ctrl+c"`
@@ -189,6 +192,25 @@ effect = "press_flash"
 specific_buttons = true
 button_colors = { A = "#00ff00", B = "#ff0000", LB = "#ffaa00" }
 ```
+
+### A stick as the mouse pointer
+
+Hold a button to move the mouse pointer with a stick, for menus, maps and launchers. Set it up in the
+**Sticks** tab: choose the button to hold, which stick points, and the pointer's speed, deadzone and
+curve. While you hold the button that stick doesn't reach the game, so nothing moves on screen while
+you point. Put a mouse click on another button in the **Buttons** tab to click with it. In the settings
+file:
+
+```toml
+[pointer]
+button = "M3"      # hold this to point; "NONE" = off. Turbo can't be used, it only sends a pulse
+stick = "right"
+speed = 900.0      # pixels a second at full tilt
+deadzone = 0.15
+curve = 1.5        # 1.0 moves straight with the stick; higher gives finer control near the center
+```
+
+Game profiles can have their own pointer settings, so it can be on for one game and off elsewhere.
 
 ### Game profiles
 

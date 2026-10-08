@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import APP_NAME, TAGLINE, config, install, launch, protocol
+from . import stick_mouse
 from . import led as lighting
 from . import status as status_file
 from .config import NONE, ConfigError, KeyCombo, Profile, Settings
@@ -530,6 +531,9 @@ class SettingsWindow(QMainWindow):
         for name in UI_ORDER:
             if name != "TURBO":
                 self.gyro_ratchet.addItem(BUTTON_LABELS[name], name)
+        self.gyro_mode = QComboBox()
+        self.gyro_mode.addItem("Press it to switch aiming on and off", "toggle")
+        self.gyro_mode.addItem("Aim only while it's held down", "hold")
         self.gyro_space = QComboBox()
         self.gyro_space.addItem("The controller's own axis", "controller")
         self.gyro_space.addItem("The room's up direction (player space)", "player")
@@ -541,6 +545,7 @@ class SettingsWindow(QMainWindow):
         self.tightening = SliderSpin(0, 20, 0.1, 1, slider_high=5)
 
         form.addRow("On / off button:", self.gyro_button)
+        form.addRow("That button:", self.gyro_mode)
         form.addRow("Pause while held (ratchet):", self.gyro_ratchet)
         form.addRow("", hint("Hold it to bring your hands back to center without moving your aim."))
         form.addRow("Turn left / right around:", self.gyro_space)
@@ -556,7 +561,7 @@ class SettingsWindow(QMainWindow):
         form.addRow("Steadiness (tightening):", self.tightening)
         form.addRow("", hint("Turning slower than this many degrees per second is softened. "
                              "Lower feels more responsive, higher feels steadier. 0 turns it off."))
-        for widget in (self.gyro_button, self.gyro_ratchet, self.gyro_space):
+        for widget in (self.gyro_button, self.gyro_mode, self.gyro_ratchet, self.gyro_space):
             widget.currentIndexChanged.connect(lambda _: self._changed())
         for widget in (self.sensitivity, self.horizontal_scale, self.vertical_scale, self.tightening):
             widget.valueChanged.connect(lambda _: self._changed())
@@ -574,9 +579,43 @@ class SettingsWindow(QMainWindow):
         form.addRow("Left stick deadzone:", self.left_deadzone)
         form.addRow("Right stick deadzone:", self.right_deadzone)
         form.addRow("", hint("0.10 ignores the first 10% of the stick's travel."))
-        for widget in (self.left_deadzone, self.right_deadzone):
+
+        form.addRow(hint("\nHold a button to move the mouse pointer with a stick, for menus and maps. While you "
+                         "hold it, that stick doesn't reach the game, so nothing moves on screen. Put a mouse "
+                         "click on another button in the Buttons tab to click with it."))
+        self.pointer_button = QComboBox()
+        self.pointer_button.addItem("Off", NONE)
+        for name in UI_ORDER:
+            if name != "TURBO":  # Turbo only sends a short pulse, so it can't be held
+                self.pointer_button.addItem(BUTTON_LABELS[name], name)
+        self.pointer_stick = QComboBox()
+        for name, label in stick_mouse.STICKS.items():
+            self.pointer_stick.addItem(label, name)
+        self.pointer_speed = SliderSpin(50, 5000, 25, 0, slider_high=2500)
+        self.pointer_deadzone = SliderSpin(0, 0.9, 0.01, 2)
+        self.pointer_curve = SliderSpin(1, 3, 0.1, 1)
+        form.addRow("Hold to point:", self.pointer_button)
+        form.addRow("Point with:", self.pointer_stick)
+        form.addRow("Pointer speed:", self.pointer_speed)
+        form.addRow("", hint("Pixels a second at full tilt."))
+        form.addRow("Pointer deadzone:", self.pointer_deadzone)
+        form.addRow("Fine control:", self.pointer_curve)
+        form.addRow("", hint("1.0 moves straight with the stick; higher gives finer control near the center."))
+        self._pointer_rows = (self.pointer_stick, self.pointer_speed, self.pointer_deadzone, self.pointer_curve)
+        self._sticks_form = form
+        self.pointer_button.currentIndexChanged.connect(lambda _: (self._sync_pointer_controls(), self._changed()))
+        self.pointer_stick.currentIndexChanged.connect(lambda _: self._changed())
+        for widget in (self.left_deadzone, self.right_deadzone, self.pointer_speed, self.pointer_deadzone,
+                       self.pointer_curve):
             widget.valueChanged.connect(lambda _: self._changed())
+        self._sync_pointer_controls()
         return page
+
+    def _sync_pointer_controls(self) -> None:
+        """The pointer settings only matter once a button is chosen to hold."""
+        on = self.pointer_button.currentData() != NONE
+        for widget in self._pointer_rows:
+            self._sticks_form.setRowVisible(widget, on)
 
     def _build_buttons_tab(self) -> QWidget:
         page = QWidget()
@@ -654,6 +693,7 @@ class SettingsWindow(QMainWindow):
         self._loading = True
         gyro = settings.gyro
         self.gyro_button.setCurrentIndex(self.gyro_button.findData(gyro.button))
+        self.gyro_mode.setCurrentIndex(max(0, self.gyro_mode.findData(gyro.mode)))
         self.gyro_ratchet.setCurrentIndex(max(0, self.gyro_ratchet.findData(gyro.ratchet)))
         self.gyro_space.setCurrentIndex(max(0, self.gyro_space.findData(gyro.space)))
         self.sensitivity.setValue(gyro.sensitivity)
@@ -664,6 +704,13 @@ class SettingsWindow(QMainWindow):
         self.tightening.setValue(gyro.tightening_dps)
         self.left_deadzone.setValue(settings.left_deadzone)
         self.right_deadzone.setValue(settings.right_deadzone)
+        pointer = settings.pointer
+        self.pointer_button.setCurrentIndex(max(0, self.pointer_button.findData(pointer.button)))
+        self.pointer_stick.setCurrentIndex(max(0, self.pointer_stick.findData(pointer.stick)))
+        self.pointer_speed.setValue(pointer.speed)
+        self.pointer_deadzone.setValue(pointer.deadzone)
+        self.pointer_curve.setValue(pointer.curve)
+        self._sync_pointer_controls()
         for name, row in self.remap_rows.items():
             row.set_target(settings.target(name))
         lights = settings.led
@@ -683,6 +730,7 @@ class SettingsWindow(QMainWindow):
         settings = Settings()
         gyro = settings.gyro
         gyro.button = self.gyro_button.currentData()
+        gyro.mode = self.gyro_mode.currentData()
         gyro.ratchet = self.gyro_ratchet.currentData()
         gyro.space = self.gyro_space.currentData()
         gyro.sensitivity = self.sensitivity.value()
@@ -693,6 +741,10 @@ class SettingsWindow(QMainWindow):
         gyro.tightening_dps = self.tightening.value()
         settings.left_deadzone = self.left_deadzone.value()
         settings.right_deadzone = self.right_deadzone.value()
+        settings.pointer = stick_mouse.StickMouseSettings(
+            self.pointer_button.currentData(), self.pointer_stick.currentData(),
+            self.pointer_speed.value(), self.pointer_deadzone.value(), self.pointer_curve.value(),
+        )
         for name, row in self.remap_rows.items():
             target = row.target()
             if target is None:
@@ -737,8 +789,11 @@ class SettingsWindow(QMainWindow):
         if self._loading:
             return
         button, ratchet = self.gyro_button.currentData(), self.gyro_ratchet.currentData()
+        pointing = self.pointer_button.currentData()
         for name, row in self.remap_rows.items():
-            row.set_role("used for gyro on / off" if name == button else "used for gyro pause" if name == ratchet else None)
+            row.set_role("used for gyro on / off" if name == button else
+                         "used for gyro pause" if name == ratchet else
+                         "used to point with a stick" if name == pointing else None)
         try:
             settings = self.settings_from_window()
         except ConfigError as err:

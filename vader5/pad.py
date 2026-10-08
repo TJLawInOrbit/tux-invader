@@ -30,6 +30,7 @@ from .led import LedSettings, PressFlash, build_blob, geometry
 from .led import describe as describe_lights
 from .games import GameWatcher
 from .gyro import GyroAim
+from .stick_mouse import StickMouse
 from .keyboard_mouse import VirtualKeyboardMouse
 from .status import single_instance_lock
 from .virtual_pad import VirtualElite
@@ -240,6 +241,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
     games.check(time.monotonic(), watcher.settings.profiles)
     settings = watcher.settings.for_profile(games.active)
     gyro = GyroAim(settings.gyro)
+    pointer = StickMouse(settings.pointer)
 
     detached, grabbed = hide_xpad(pad) if hide else (None, None)
     details = ""
@@ -278,6 +280,7 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
             if reloaded or profile_changed:
                 settings = watcher.settings.for_profile(games.active)
                 gyro.settings = settings.gyro
+                pointer.settings = settings.pointer
                 lights.apply(settings.led)
                 flash.configure(settings.led)
             if now >= next_info:
@@ -289,12 +292,14 @@ def run_connection(pad: Controller, watcher: ConfigWatcher, reporter: StatusRepo
                 last_report = now
                 if vpad is None:
                     vpad, keyboard_mouse = create_virtual_devices()
+                pointer_dx, pointer_dy = pointer.process(states, now)
+                pointing_with = pointer.suppressed_stick()
                 for state in states:
-                    vpad.update(settings.for_games(state))
+                    vpad.update(settings.for_games(state, pointing_with))
                     keyboard_mouse.hold(settings.keys_for(state.buttons))
                 held = frozenset().union(*(state.buttons for state in states))  # a quick tap between two loops still counts
                 dx, dy, toggled = gyro.process(states, now)
-                keyboard_mouse.move(dx, dy)
+                keyboard_mouse.move(dx + pointer_dx, dy + pointer_dy)
                 if toggled:
                     log(f"gyro aiming {'on' if gyro.enabled else 'off'}")
                     cue, length = GYRO_CUE_ON if gyro.enabled else GYRO_CUE_OFF

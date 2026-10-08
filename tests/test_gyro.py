@@ -49,6 +49,21 @@ class GyroAimTests(unittest.TestCase):
         self.assertTrue(aim.process([report(buttons={BUTTON})], 0.04)[2])
         self.assertFalse(aim.enabled)
 
+    def test_hold_mode_aims_only_while_the_button_is_held(self):
+        aim = gyro.GyroAim(gyro.GyroSettings(button="Z", mode="hold", sensitivity=10.0))
+        turning = report(gyro_dps=(0, 0, 90))
+        held = report(gyro_dps=(0, 0, 90), buttons={"Z"})
+        before, _, now = self.feed(aim, turning, 0.5)
+        self.assertEqual(before, 0)  # not held: no aiming
+        self.assertTrue(aim.process([held], now + 0.002)[2])  # pressing it reports a change (for the buzz)
+        moved, _, now = self.feed(aim, held, 0.5, start=now + 0.002)
+        self.assertAlmostEqual(abs(moved), 440, delta=20)
+        self.assertTrue(aim.enabled)
+        self.assertTrue(aim.process([turning], now + 0.002)[2])  # letting go reports a change too
+        after, _, _ = self.feed(aim, turning, 0.5, start=now + 0.002)
+        self.assertEqual(after, 0)
+        self.assertFalse(aim.enabled)
+
     def test_no_movement_while_off(self):
         dx, dy, _ = self.feed(gyro.GyroAim(), report(gyro_dps=(0, 0, 90)), 1.0)
         self.assertEqual((dx, dy), (0, 0))

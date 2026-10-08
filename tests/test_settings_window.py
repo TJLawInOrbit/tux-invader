@@ -214,6 +214,26 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertFalse(w._led_form.isRowVisible(w.led_specific))  # only for Flash on button press
         self.assertTrue(w.led_colors.isEnabled())
 
+    def test_gyro_mode_and_stick_pointer(self):
+        w = self.window
+        self.assertEqual(w.gyro_mode.currentData(), "toggle")
+        self.assertEqual(w.pointer_button.currentData(), "NONE")
+        self.assertFalse(w._sticks_form.isRowVisible(w.pointer_speed))  # hidden until a button is chosen
+        self.assertEqual(w.pointer_button.findData("TURBO"), -1)  # Turbo can't be held
+
+        w.gyro_button.setCurrentIndex(w.gyro_button.findData("Z"))
+        w.gyro_mode.setCurrentIndex(w.gyro_mode.findData("hold"))
+        w.pointer_button.setCurrentIndex(w.pointer_button.findData("M3"))
+        self.assertTrue(w._sticks_form.isRowVisible(w.pointer_speed))
+        w.pointer_stick.setCurrentIndex(w.pointer_stick.findData("left"))
+        w.pointer_speed.setValue(1500)
+        self.assertEqual(w.remap_rows["M3"].note.text(), "used to point with a stick")
+        self.assertTrue(w.save())
+
+        saved = config.load(self.path)
+        self.assertEqual((saved.gyro.button, saved.gyro.mode), ("Z", "hold"))
+        self.assertEqual((saved.pointer.button, saved.pointer.stick, saved.pointer.speed), ("M3", "left", 1500.0))
+
     def test_low_battery_sound_checkbox(self):
         w = self.window
         self.assertTrue(w.battery_sound.isChecked())  # on by default

@@ -26,18 +26,20 @@ from typing import NamedTuple
 
 from . import keyboard_mouse, protocol
 from . import led as lighting
-from .gyro import SPACES as GYRO_SPACES, GyroSettings
+from .gyro import MODES as GYRO_MODES, SPACES as GYRO_SPACES, GyroSettings
+from .stick_mouse import STICKS, StickMouseSettings
 from .virtual_pad import BUTTON_CODES
 
 NONE = "NONE"  # remap target that turns a button off
 ALIASES = {"VIEW": "SELECT", "BACK": "SELECT", "MENU": "START", "GUIDE": "HOME"}
-SECTIONS = ("gyro", "sticks", "remap", "led")
+SECTIONS = ("gyro", "sticks", "pointer", "remap", "led")
 GYRO_SETTINGS = {  # name in the file -> GyroSettings attribute
-    "button": "button", "ratchet": "ratchet", "space": "space", "sensitivity": "sensitivity",
+    "button": "button", "mode": "mode", "ratchet": "ratchet", "space": "space", "sensitivity": "sensitivity",
     "horizontal_scale": "horizontal_scale", "vertical_scale": "vertical_scale",
     "invert_x": "invert_x", "invert_y": "invert_y", "tightening": "tightening_dps",
 }
 STICK_SETTINGS = ("left_deadzone", "right_deadzone")
+POINTER_SETTINGS = ("button", "stick", "speed", "deadzone", "curve")  # [pointer]: a stick as the mouse
 LED_SETTINGS = ("effect", "colors", "brightness", "speed", "specific_buttons", "button_colors")
 PROFILE_KEYS = {"name", "steam_app_id", "process", *SECTIONS}
 
@@ -76,6 +78,7 @@ class Settings:
     right_deadzone: float = 0.0
     remap: dict[str, str] = field(default_factory=dict)  # physical button -> controller button, or NONE
     key_remap: dict[str, KeyCombo] = field(default_factory=dict)  # physical button -> keys/mouse buttons
+    pointer: StickMouseSettings = field(default_factory=StickMouseSettings)
     led: lighting.LedSettings = field(default_factory=lighting.LedSettings)
     low_battery_sound: bool = True  # the tray icon's low-battery warning also plays a sound
     profiles: list[Profile] = field(default_factory=list)
@@ -97,8 +100,8 @@ class Settings:
         """The controller buttons games should see for these physical presses."""
         out = set()
         for name in pressed:
-            if name in (self.gyro.button, self.gyro.ratchet) or name in self.key_remap:
-                continue  # gyro buttons never reach games; key remaps go to the keyboard instead
+            if name in self.mode_buttons() or name in self.key_remap:
+                continue  # gyro and pointer buttons never reach games; key remaps go to the keyboard instead
             target = self.remap.get(name, name)
             if target != NONE:
                 out.add(target)
@@ -108,18 +111,21 @@ class Settings:
         """Keyboard keys and mouse buttons to hold down for these physical presses, in press order."""
         codes: list[int] = []
         for name in protocol.BUTTON_NAMES:  # a fixed order, so holding two remapped buttons is predictable
-            if name in pressed and name in self.key_remap and name not in (self.gyro.button, self.gyro.ratchet):
+            if name in pressed and name in self.key_remap and name not in self.mode_buttons():
                 codes += [code for code in self.key_remap[name].codes if code not in codes]
         return tuple(codes)
 
-    def for_games(self, state: protocol.InputState) -> protocol.InputState:
-        """The input state as games should see it: remapped buttons and stick deadzones applied."""
-        return dataclasses.replace(
-            state,
-            buttons=self.output_buttons(state.buttons),
-            left_stick=apply_deadzone(*state.left_stick, self.left_deadzone),
-            right_stick=apply_deadzone(*state.right_stick, self.right_deadzone),
-        )
+    def mode_buttons(self) -> tuple[str, ...]:
+        """Buttons that work the app itself, so they never reach games."""
+        return (self.gyro.button, self.gyro.ratchet, self.pointer.button)
+
+    def for_games(self, state: protocol.InputState, pointing_with: str | None = None) -> protocol.InputState:
+        """The input state as games should see it: remapped buttons and stick deadzones applied.
+        `pointing_with` is a stick that's moving the mouse pointer, which games shouldn't see at all."""
+        left = (0, 0) if pointing_with == "left" else apply_deadzone(*state.left_stick, self.left_deadzone)
+        right = (0, 0) if pointing_with == "right" else apply_deadzone(*state.right_stick, self.right_deadzone)
+        return dataclasses.replace(state, buttons=self.output_buttons(state.buttons),
+                                   left_stick=left, right_stick=right)
 
 
 def apply_deadzone(x: int, y: int, deadzone: float) -> tuple[int, int]:
@@ -187,6 +193,14 @@ def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
         raise ConfigError(f"{prefix}[gyro] ratchet can't be TURBO: Turbo only sends a short pulse, so it can't be held")
     if settings.gyro.ratchet != NONE and settings.gyro.ratchet == settings.gyro.button:
         raise ConfigError(f"{prefix}[gyro] ratchet and button can't be the same button")
+    if "mode" in gyro:
+        mode = gyro["mode"]
+        if not isinstance(mode, str) or mode.lower() not in GYRO_MODES:
+            raise ConfigError(f'{prefix}[gyro] mode must be "toggle" or "hold", not {mode!r}')
+        settings.gyro.mode = mode.lower()
+    if settings.gyro.mode == "hold" and settings.gyro.button == "TURBO":
+        raise ConfigError(f'{prefix}[gyro] button can\'t be TURBO with mode = "hold": Turbo only sends a short '
+                          "pulse, so it can't be held. Pick another button.")
     if "space" in gyro:
         space = gyro["space"]
         if not isinstance(space, str) or space.lower() not in GYRO_SPACES:
@@ -208,6 +222,26 @@ def _apply_sections(settings: Settings, tables: dict, prefix: str) -> None:
     for key in STICK_SETTINGS:
         if key in sticks:
             setattr(settings, key, _number(sticks[key], f"{prefix}[sticks] {key}", 0.0, 0.9))
+
+    pointer = _table(tables, "pointer", prefix)
+    _check_keys(pointer, set(POINTER_SETTINGS), f"{prefix}[pointer]")
+    if "button" in pointer:
+        settings.pointer.button = _button(pointer["button"], f"{prefix}[pointer] button",
+                                          (*protocol.BUTTON_NAMES, NONE))
+    if settings.pointer.button == "TURBO":
+        raise ConfigError(f"{prefix}[pointer] button can't be TURBO: Turbo only sends a short pulse, so it "
+                          "can't be held. Pick another button.")
+    if "stick" in pointer:
+        stick = pointer["stick"]
+        if not isinstance(stick, str) or stick.lower() not in STICKS:
+            raise ConfigError(f'{prefix}[pointer] stick must be "left" or "right", not {stick!r}')
+        settings.pointer.stick = stick.lower()
+    if "speed" in pointer:
+        settings.pointer.speed = _number(pointer["speed"], f"{prefix}[pointer] speed", 50.0, 5000.0)
+    if "deadzone" in pointer:
+        settings.pointer.deadzone = _number(pointer["deadzone"], f"{prefix}[pointer] deadzone", 0.0, 0.9)
+    if "curve" in pointer:
+        settings.pointer.curve = _number(pointer["curve"], f"{prefix}[pointer] curve", 1.0, 3.0)
 
     for source, target in _table(tables, "remap", prefix).items():
         name = _button(source, f"{prefix}[remap]", protocol.BUTTON_NAMES)
@@ -280,9 +314,10 @@ def _overrides_as_written(tables: dict, effective: Settings) -> dict[str, dict]:
     for source in _table(tables, "remap"):
         name = ALIASES.get(source.strip().upper(), source.strip().upper())
         remap[name] = effective.target(name)
+    pointer = {key: getattr(effective.pointer, key) for key in _table(tables, "pointer")}
     lights = {key: _led_value(effective.led, key) for key in _table(tables, "led")}
     return {section: values for section, values in
-            (("gyro", gyro), ("sticks", sticks), ("remap", remap), ("led", lights)) if values}
+            (("gyro", gyro), ("sticks", sticks), ("pointer", pointer), ("remap", remap), ("led", lights)) if values}
 
 
 def overrides_between(main: Settings, effective: Settings) -> dict[str, dict]:
@@ -296,10 +331,12 @@ def overrides_between(main: Settings, effective: Settings) -> dict[str, dict]:
         if wanted != main.target(name):
             # "back to itself" has to be spelled out, or the main remap would still apply
             remap[name] = wanted if wanted is not None else (name if name in BUTTON_CODES else NONE)
+    pointer = {key: getattr(effective.pointer, key) for key in POINTER_SETTINGS
+               if getattr(effective.pointer, key) != getattr(main.pointer, key)}
     lights = {key: _led_value(effective.led, key) for key in LED_SETTINGS
               if getattr(effective.led, key) != getattr(main.led, key)}
     return {section: values for section, values in
-            (("gyro", gyro), ("sticks", sticks), ("remap", remap), ("led", lights)) if values}
+            (("gyro", gyro), ("sticks", sticks), ("pointer", pointer), ("remap", remap), ("led", lights)) if values}
 
 
 def render(settings: Settings) -> str:
@@ -317,6 +354,9 @@ def render(settings: Settings) -> str:
         "[gyro]",
         "# Button that turns gyro aiming on and off. It isn't sent to games.",
         f"button = {_quote(gyro.button)}",
+        '# "toggle" = press it to switch gyro aiming on, press again for off. "hold" = aim only while it\'s',
+        "# held down (Turbo can't be used for that: it only sends a short pulse).",
+        f"mode = {_quote(gyro.mode)}",
         "# Hold this button to pause gyro aiming while you bring your hands back to center, like lifting a",
         '# mouse off the desk. It isn\'t sent to games. "NONE" = no pause button. Turbo can\'t be held, so it',
         "# can't be used here.",
@@ -340,6 +380,18 @@ def render(settings: Settings) -> str:
         "# Games have their own deadzones, so leave these at 0.0 unless a stick drifts.",
         f"left_deadzone = {float(settings.left_deadzone)!r}",
         f"right_deadzone = {float(settings.right_deadzone)!r}",
+        "",
+        "[pointer]",
+        "# Hold a button to move the mouse pointer with a stick (handy for menus and maps). While it's held",
+        "# that stick doesn't reach the game. \"NONE\" = off; Turbo can't be used, it only sends a pulse.",
+        f"button = {_quote(settings.pointer.button)}",
+        '# Which stick points: "left" or "right".',
+        f"stick = {_quote(settings.pointer.stick)}",
+        "# Pointer speed in pixels a second at full tilt, how much of the stick's travel to ignore around",
+        "# the center, and the curve (1.0 = straight, higher = finer control near the center).",
+        f"speed = {float(settings.pointer.speed)!r}",
+        f"deadzone = {float(settings.pointer.deadzone)!r}",
+        f"curve = {float(settings.pointer.curve)!r}",
         "",
         "[led]",
         '# What the LED strip shows. "controller" leaves the lights stored on the controller alone.',
@@ -601,11 +653,14 @@ def describe(settings: Settings) -> str:
     remaps += [f"{source} -> {combo.text}" for source, combo in settings.key_remap.items()]
     profiles = [f"{profile.name} ({profile.describe_game()})" for profile in settings.profiles]
     return "\n".join([
-        f"gyro: toggle {gyro.button}, ratchet {gyro.ratchet}, {gyro.space} space, sensitivity {gyro.sensitivity:g} "
+        f"gyro: {gyro.mode} {gyro.button}, ratchet {gyro.ratchet}, {gyro.space} space, sensitivity {gyro.sensitivity:g} "
         f"(horizontal x{gyro.horizontal_scale:g}, vertical x{gyro.vertical_scale:g}), invert x {str(gyro.invert_x).lower()}, "
         f"invert y {str(gyro.invert_y).lower()}, tightening {gyro.tightening_dps:g}",
         f"sticks: left deadzone {settings.left_deadzone:g}, right deadzone {settings.right_deadzone:g}",
         "remap: " + (", ".join(sorted(remaps)) or "none"),
+        ("pointer: off" if settings.pointer.button == NONE else
+         f"pointer: hold {settings.pointer.button} for the {settings.pointer.stick} stick, "
+         f"speed {settings.pointer.speed:g}, deadzone {settings.pointer.deadzone:g}, curve {settings.pointer.curve:g}"),
         "led: " + lighting.describe(settings.led),
         f"notifications: low battery sound {'on' if settings.low_battery_sound else 'off'}",
         "profiles: " + ("; ".join(profiles) or "none"),

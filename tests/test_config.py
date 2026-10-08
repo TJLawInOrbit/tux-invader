@@ -48,6 +48,44 @@ class ParseTests(unittest.TestCase):
         with self.assertRaisesRegex(config.ConfigError, "space must be"):
             config.parse('[gyro]\nspace = "world"')
 
+    def test_gyro_hold_mode_and_the_stick_pointer(self):
+        self.assertEqual(config.parse("").gyro.mode, "toggle")
+        self.assertEqual(config.parse("").pointer.button, "NONE")
+        settings = config.parse('[gyro]\nbutton = "Z"\nmode = "Hold"\n'
+                                '[pointer]\nbutton = "m3"\nstick = "Left"\nspeed = 1200\ndeadzone = 0.2\ncurve = 2')
+        self.assertEqual((settings.gyro.button, settings.gyro.mode), ("Z", "hold"))
+        self.assertEqual((settings.pointer.button, settings.pointer.stick), ("M3", "left"))
+        self.assertEqual((settings.pointer.speed, settings.pointer.deadzone, settings.pointer.curve), (1200.0, 0.2, 2.0))
+        self.assertEqual(config.parse(config.render(settings)), settings)
+        self.assertIn("gyro: hold Z", config.describe(settings))
+        self.assertIn("pointer: hold M3 for the left stick", config.describe(settings))
+        self.assertEqual(settings.mode_buttons(), ("Z", "NONE", "M3"))
+
+    def test_gyro_hold_and_pointer_mistakes_are_explained(self):
+        cases = {
+            '[gyro]\nmode = "while held"': 'mode must be "toggle" or "hold"',
+            '[gyro]\nmode = "hold"': "can't be TURBO",  # Turbo is the default gyro button, and only pulses
+            '[pointer]\nbutton = "turbo"': "can't be TURBO",
+            '[pointer]\nbutton = "Q"': "unknown button 'Q'",
+            '[pointer]\nstick = "middle"': 'stick must be "left" or "right"',
+            "[pointer]\nspeed = 10": "speed should be between 50 and 5000",
+            "[pointer]\ncurve = 5": "curve should be between 1 and 3",
+            "[pointer]\npace = 2": "unknown setting 'pace'",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(config.ConfigError) as caught:
+                    config.parse(text)
+                self.assertIn(message, str(caught.exception))
+
+    def test_a_game_profile_can_change_the_pointer(self):
+        settings = config.parse('[pointer]\nbutton = "M3"\n[[profile]]\nname = "SF6"\nsteam_app_id = 1364780\n'
+                                '[profile.pointer]\nspeed = 2000')
+        self.assertEqual(settings.for_profile("SF6").pointer.speed, 2000.0)
+        self.assertEqual(settings.for_profile("SF6").pointer.button, "M3")  # follows the main settings
+        self.assertEqual(settings.profiles[0].overrides, {"pointer": {"speed": 2000.0}})
+        self.assertEqual(config.parse(config.render(settings)), settings)
+
     def test_mistakes_are_explained(self):
         cases = {
             '[gyro]\nsensitivity = "fast"': "sensitivity should be a number",

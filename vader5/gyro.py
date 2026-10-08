@@ -12,6 +12,11 @@ from dataclasses import dataclass
 
 from . import protocol
 
+MODES = {
+    "toggle": "Press the button to switch gyro aiming on, press again for off",
+    "hold": "Gyro aiming is on only while the button is held",
+}
+
 # how left/right turning is measured
 SPACES = {
     "controller": "Around the controller's own axis",  # holding it tilted turns slower
@@ -21,7 +26,8 @@ SPACES = {
 
 @dataclass
 class GyroSettings:
-    button: str = "TURBO"  # toggles gyro aiming on/off and isn't passed to games; Turbo sends one short pulse per press
+    button: str = "TURBO"  # switches gyro aiming on/off and isn't passed to games; Turbo sends one short pulse per press
+    mode: str = "toggle"  # see MODES: press to switch, or aim only while the button is held
     ratchet: str = "NONE"  # hold to pause gyro aiming while you bring your hands back to center; not passed to games
     space: str = "controller"  # see SPACES
     sensitivity: float = 15.0  # mouse movement (counts) per degree the controller turns
@@ -80,7 +86,12 @@ class GyroAim:
         turn_x = turn_y = 0.0  # degrees
         for state in states:
             pressed = self.settings.button in state.buttons
-            if pressed and not self._button_down:
+            if self.settings.mode == "hold":
+                if pressed != self.enabled:  # aiming only while the button is held
+                    self.enabled = pressed
+                    self._remainder = [0.0, 0.0]
+                    toggled = True
+            elif pressed and not self._button_down:
                 self.enabled = not self.enabled
                 self._remainder = [0.0, 0.0]
                 toggled = True
