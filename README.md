@@ -88,8 +88,8 @@ unplug, switch between cable and dongle, or turn the controller off, it reconnec
 ### Gyro aiming
 
 Press **Turbo** to turn gyro aiming on or off. A short light buzz means on; a longer heavy buzz means
-off. Prefer to hold a button instead? Set **That button** to "Aim only while it's held down" (`mode =
-"hold"` under `[gyro]`) and pick a button that can be held: Turbo only sends a short pulse, so it can't. While it's on, turning the controller left and right moves the mouse sideways, and tilting it
+off. Prefer to hold a button instead? Set **How to use it** to "Hold it to aim" (`mode = "hold"` under
+`[gyro]`) and pick a button that can be held: Turbo only sends a short pulse, so it can't. While it's on, turning the controller left and right moves the mouse sideways, and tilting it
 up and down moves it vertically, on top of your normal controller input. Games see an ordinary
 mouse ("Vader 5 Pro Keyboard and Mouse"), so it works in any game that lets you aim with the mouse
 while you use a controller. Turbo itself isn't sent to games. Gyro aiming starts off each time the controller

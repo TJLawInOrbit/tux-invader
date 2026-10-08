@@ -521,8 +521,8 @@ class SettingsWindow(QMainWindow):
     def _build_gyro_tab(self) -> QWidget:
         page = QWidget()
         form = QFormLayout(page)
-        form.addRow(hint("Press the on/off button on the controller to start gyro aiming: a short light buzz "
-                         "means on, a longer heavy buzz means off. Turning the controller then moves your aim."))
+        form.addRow(hint("Use the gyro button on the controller to start aiming: a short light buzz means on, a "
+                         "longer heavy buzz means off. Turning the controller then moves your aim."))
         self.gyro_button = QComboBox()
         for name in UI_ORDER:
             self.gyro_button.addItem(BUTTON_LABELS[name], name)
@@ -532,8 +532,8 @@ class SettingsWindow(QMainWindow):
             if name != "TURBO":
                 self.gyro_ratchet.addItem(BUTTON_LABELS[name], name)
         self.gyro_mode = QComboBox()
-        self.gyro_mode.addItem("Press it to switch aiming on and off", "toggle")
-        self.gyro_mode.addItem("Aim only while it's held down", "hold")
+        self.gyro_mode.addItem("Press to switch aiming on and off", "toggle")
+        self.gyro_mode.addItem("Hold it to aim", "hold")
         self.gyro_space = QComboBox()
         self.gyro_space.addItem("The controller's own axis", "controller")
         self.gyro_space.addItem("The room's up direction (player space)", "player")
@@ -544,8 +544,8 @@ class SettingsWindow(QMainWindow):
         self.invert_y = QCheckBox("Invert up / down")
         self.tightening = SliderSpin(0, 20, 0.1, 1, slider_high=5)
 
-        form.addRow("On / off button:", self.gyro_button)
-        form.addRow("That button:", self.gyro_mode)
+        form.addRow("Gyro button:", self.gyro_button)
+        form.addRow("How to use it:", self.gyro_mode)
         form.addRow("Pause while held (ratchet):", self.gyro_ratchet)
         form.addRow("", hint("Hold it to bring your hands back to center without moving your aim."))
         form.addRow("Turn left / right around:", self.gyro_space)
@@ -791,7 +791,7 @@ class SettingsWindow(QMainWindow):
         button, ratchet = self.gyro_button.currentData(), self.gyro_ratchet.currentData()
         pointing = self.pointer_button.currentData()
         for name, row in self.remap_rows.items():
-            row.set_role("used for gyro on / off" if name == button else
+            row.set_role("used as the gyro button" if name == button else
                          "used for gyro pause" if name == ratchet else
                          "used to point with a stick" if name == pointing else None)
         try:
