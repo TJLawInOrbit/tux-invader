@@ -424,6 +424,7 @@ Done:
 6. Tray icon with a low-battery warning, app menu entry and per-game profiles (v0.2)
 7. LED strip control, including a flash on button press, per button if you like (v0.3)
 8. AppImage with a one-click setup, tested on Ubuntu, Debian, Fedora and Arch (v0.4)
+9. Gyro aiming while a button is held, and a stick as the mouse pointer (v0.5.0)
 
 Next:
 
